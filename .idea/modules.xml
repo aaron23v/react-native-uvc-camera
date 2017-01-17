@@ -3,7 +3,6 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/UVCCamera.iml" filepath="$PROJECT_DIR$/UVCCamera.iml" />
-      <module fileurl="file://$PROJECT_DIR$/libuvccamera/libuvccamera.iml" filepath="$PROJECT_DIR$/libuvccamera/libuvccamera.iml" />
     </modules>
   </component>
 </project>
