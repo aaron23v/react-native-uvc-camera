@@ -675,8 +675,9 @@ int UVCPreview::setCaptureDisplay(ANativeWindow *capture_window) {
 		}
 		if (mCaptureWindow != capture_window) {
 			// release current Surface if already assigned.
-			if (UNLIKELY(mCaptureWindow))
-				ANativeWindow_release(mCaptureWindow);
+			// Viggy edit - do not release, since the Surface is coming from a MediaRecorder
+			// if (UNLIKELY(mCaptureWindow))
+			// 	 ANativeWindow_release(mCaptureWindow);
 			mCaptureWindow = capture_window;
 			// if you use Surface came from MediaCodec#createInputSurface
 			// you could not change window format at least when you use
@@ -688,7 +689,8 @@ int UVCPreview::setCaptureDisplay(ANativeWindow *capture_window) {
 				if ((window_format != WINDOW_FORMAT_RGB_565)
 					&& (previewFormat == WINDOW_FORMAT_RGB_565)) {
 					LOGE("window format mismatch, cancelled movie capturing.");
-					ANativeWindow_release(mCaptureWindow);
+					// Viggy edit - see above, do not release
+					// ANativeWindow_release(mCaptureWindow);
 					mCaptureWindow = NULL;
 				}
 			}

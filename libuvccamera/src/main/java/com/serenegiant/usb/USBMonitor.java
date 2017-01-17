@@ -91,7 +91,7 @@ public final class USBMonitor {
 		 * called when device dettach(after onDisconnect)
 		 * @param device
 		 */
-		public void onDettach(UsbDevice device);
+		public void onDetach(UsbDevice device);
 		/**
 		 * called after device opend
 		 * @param device
@@ -607,7 +607,7 @@ public final class USBMonitor {
 			mAsyncHandler.post(new Runnable() {
 				@Override
 				public void run() {
-					mOnDeviceConnectListener.onDettach(device);
+					mOnDeviceConnectListener.onDetach(device);
 				}
 			});
 		}
