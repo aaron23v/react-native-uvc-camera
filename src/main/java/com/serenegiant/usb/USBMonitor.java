@@ -114,8 +114,6 @@ public final class USBMonitor {
 
 	public USBMonitor(final Context context, final OnDeviceConnectListener listener) {
 		if (DEBUG) Log.v(TAG, "USBMonitor:Constructor");
-		if (listener == null)
-			throw new IllegalArgumentException("OnDeviceConnectListener should not null.");
 		mWeakContext = new WeakReference<Context>(context);
 		mUsbManager = (UsbManager)context.getSystemService(Context.USB_SERVICE);
 		mOnDeviceConnectListener = listener;
