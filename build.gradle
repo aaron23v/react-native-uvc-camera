@@ -28,7 +28,7 @@ buildscript {
 		jcenter()
 	}
 	dependencies {
-		classpath 'com.android.tools.build:gradle:2.2.3'
+		classpath 'com.android.tools.build:gradle:2.3.0'
 	}
 }
 
@@ -37,10 +37,6 @@ allprojects {
 		maven { url 'http://raw.github.com/saki4510t/libcommon/master/repository/' }
 		jcenter()
 	}
-}
-
-task clean(type: Delete) {
-	delete rootProject.buildDir
 }
 
 ext {
@@ -90,12 +86,14 @@ tasks.withType(JavaCompile) {
 
 task ndkBuild(type: Exec, description: 'Compile JNI source via NDK') {
 	println('executing ndkBuild')
-	def ndkBuildingDir = project.plugins.findPlugin('com.android.library').sdkHandler.getNdkFolder().absolutePath
-	def ndkBuildPath = ndkBuildingDir
+	Properties properties = new Properties()
+	properties.load(project.rootProject.file('local.properties').newDataInputStream())
+	def ndkDir = properties.getProperty('ndk.dir')
+	def ndkBuildPath = ndkDir
 	if (Os.isFamily(Os.FAMILY_WINDOWS)) {
-		ndkBuildPath = ndkBuildingDir + '/ndk-build.cmd'
+		ndkBuildPath = ndkDir + '/ndk-build.cmd'
 	} else {
-		ndkBuildPath = ndkBuildingDir + '/ndk-build'
+		ndkBuildPath = ndkDir + '/ndk-build'
 	}
 	commandLine ndkBuildPath, '-j8', '-C', file('src/main').absolutePath
 }
