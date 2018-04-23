@@ -26,9 +26,10 @@ apply plugin: 'com.android.library'
 buildscript {
 	repositories {
 		jcenter()
+		google()
 	}
 	dependencies {
-		classpath 'com.android.tools.build:gradle:3.0.1'
+		classpath 'com.android.tools.build:gradle:3.1.1'
 	}
 }
 
@@ -42,7 +43,6 @@ allprojects {
 ext {
 	supportLibVersion = '25.1.0'  // variable that can be referenced to keep support libs consistent
 	commonLibVersion= '1.4.3'
-	versionBuildTool = '26.0.2'
 	versionCompiler = 25
 	versionTarget = 23
 	versionNameString = '1.0.0'
@@ -54,7 +54,6 @@ import org.apache.tools.ant.taskdefs.condition.Os
 
 android {
 	compileSdkVersion versionCompiler
-	buildToolsVersion versionBuildTool
 
 	compileOptions {
 		sourceCompatibility javaSourceCompatibility
@@ -99,9 +98,9 @@ task ndkBuild(type: Exec, description: 'Compile JNI source via NDK') {
 }
 
 dependencies {
-    compile fileTree(dir: new File(buildDir, 'libs'), include: '*.jar')
-	compile "com.android.support:support-annotations:${supportLibVersion}"
-	compile("com.serenegiant:common:${commonLibVersion}") {
-		exclude module: 'support-v4'
+    implementation fileTree(dir: new File(buildDir, 'libs'), include: '*.jar')
+    implementation "com.android.support:support-annotations:${supportLibVersion}"
+    implementation("com.serenegiant:common:${commonLibVersion}") {
+        exclude module: 'support-v4'
 	}
 }
