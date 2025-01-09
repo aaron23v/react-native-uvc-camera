@@ -182,7 +182,7 @@ public final class USBMonitor {
 				if (Build.VERSION.SDK_INT >= 34 && context.getApplicationInfo().targetSdkVersion >= 34) {
 					context.registerReceiver(mUsbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
 				} else {
-					context.registerReceiver(receiver, filter);
+					context.registerReceiver(mUsbReceiver, filter);
 				}
 			}
 			// start connection check
