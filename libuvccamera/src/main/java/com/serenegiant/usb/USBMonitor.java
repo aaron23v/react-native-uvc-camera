@@ -43,7 +43,7 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
-import android.os.Build; //added 
+import android.os.Build;
 import android.os.Handler;
 import android.text.TextUtils;
 import android.util.Log;
@@ -180,7 +180,7 @@ public final class USBMonitor {
 				// ACTION_USB_DEVICE_ATTACHED never comes on some devices so it should not be added here
 				filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
 				if (Build.VERSION.SDK_INT >= 34 && context.getApplicationInfo().targetSdkVersion >= 34) {
-					context.registerReceiver(mUsbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+					context.registerReceiver(mUsbReceiver, filter, context.RECEIVER_NOT_EXPORTED);
 				} else {
 					context.registerReceiver(mUsbReceiver, filter);
 				}
