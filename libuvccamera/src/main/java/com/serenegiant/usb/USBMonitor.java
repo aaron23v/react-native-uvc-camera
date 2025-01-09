@@ -174,7 +174,7 @@ public final class USBMonitor {
 						context,
 						0,
 						new Intent(ACTION_USB_PERMISSION),
-						(Build.VERSION.SDK_INT >= 31) ? PendingIntent.FLAG_MUTABLE : 0
+						(Build.VERSION.SDK_INT >= 31) ? PendingIntent.FLAG_IMMUTABLE : 0
 				);
 				final IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
 				// ACTION_USB_DEVICE_ATTACHED never comes on some devices so it should not be added here
