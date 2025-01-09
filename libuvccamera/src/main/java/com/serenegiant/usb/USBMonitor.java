@@ -48,7 +48,7 @@ import android.os.Handler;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
-
+import androidx.core.content.ContextCompat;
 import com.serenegiant.utils.BuildCheck;
 import com.serenegiant.utils.HandlerThreadHandler;
 
@@ -180,7 +180,7 @@ public final class USBMonitor {
 				// ACTION_USB_DEVICE_ATTACHED never comes on some devices so it should not be added here
 				filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
 				if (Build.VERSION.SDK_INT >= 34 && context.getApplicationInfo().targetSdkVersion >= 34) {
-					context.registerReceiver(mUsbReceiver, filter, context.RECEIVER_NOT_EXPORTED);
+					context.registerReceiver(mUsbReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
 				} else {
 					context.registerReceiver(mUsbReceiver, filter);
 				}
