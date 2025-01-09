@@ -43,12 +43,12 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
-import android.os.Build;
+import android.os.Build; //added 
 import android.os.Handler;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
-import androidx.core.content.ContextCompat;
+
 import com.serenegiant.utils.BuildCheck;
 import com.serenegiant.utils.HandlerThreadHandler;
 
@@ -179,11 +179,7 @@ public final class USBMonitor {
 				final IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
 				// ACTION_USB_DEVICE_ATTACHED never comes on some devices so it should not be added here
 				filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
-				if (Build.VERSION.SDK_INT >= 34 && context.getApplicationInfo().targetSdkVersion >= 34) {
-					context.registerReceiver(mUsbReceiver, filter, Context.RECEIVER_EXPORTED);
-				} else {
-					context.registerReceiver(mUsbReceiver, filter);
-				}
+				context.registerReceiver(mUsbReceiver, filter);
 			}
 			// start connection check
 			mDeviceCounts = 0;
