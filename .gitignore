@@ -70,3 +70,5 @@ profiles_settings.xml
 libuvccamera/src/main/libs
 .idea/copyright
 .idea/scopes
+
+.DS_Store

@@ -48,9 +48,15 @@ android {
     }
 	sourceSets {
 		main {
-			jniLibs.srcDir 'src/main/libs'
+			jniLibs.srcDirs = ['src/main/libs']
 			jni.srcDirs = []
 		}
+	}
+	
+	// Ensure native libraries are packaged
+	packagingOptions {
+		doNotStrip "*/armeabi-v7a/*.so"
+		doNotStrip "*/arm64-v8a/*.so"
 	}
 }
 
@@ -92,7 +98,4 @@ dependencies {
 	implementation "androidx.annotation:annotation:${supportLibVersion}"
 
 	implementation "com.serenegiant:common:$commonLibVersion"
-	
-	// SoLoader for React Native 0.76+ compatibility
-	implementation 'com.facebook.soloader:soloader:0.11.0'
 }
