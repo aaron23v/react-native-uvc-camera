@@ -28,10 +28,19 @@ android {
 
     versionCode 1
     versionName "1.0.0"
+    
+    consumerProguardFiles 'proguard-rules.pro'
   }
   lintOptions {
     abortOnError false
     warning 'InvalidPackage'
+  }
+  
+  packagingOptions {
+    pickFirst '**/libjpeg-turbo1500.so'
+    pickFirst '**/libusb100.so'
+    pickFirst '**/libuvc.so'
+    pickFirst '**/libUVCCamera.so'
   }
 }
 

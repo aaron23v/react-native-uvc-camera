@@ -92,4 +92,7 @@ dependencies {
 	implementation "androidx.annotation:annotation:${supportLibVersion}"
 
 	implementation "com.serenegiant:common:$commonLibVersion"
+	
+	// SoLoader for React Native 0.76+ compatibility
+	implementation 'com.facebook.soloader:soloader:0.11.0'
 }

@@ -23,6 +23,8 @@
 
 package com.serenegiant.usb;
 
+import com.facebook.soloader.SoLoader;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -116,10 +118,19 @@ public class UVCCamera {
 	private static boolean isLoaded;
 	static {
 		if (!isLoaded) {
-			System.loadLibrary("jpeg-turbo1500");
-			System.loadLibrary("usb100");
-			System.loadLibrary("uvc");
-			System.loadLibrary("UVCCamera");
+			try {
+				// Use SoLoader for React Native 0.76+ compatibility
+				SoLoader.loadLibrary("jpeg-turbo1500");
+				SoLoader.loadLibrary("usb100");
+				SoLoader.loadLibrary("uvc");
+				SoLoader.loadLibrary("UVCCamera");
+			} catch (UnsatisfiedLinkError e) {
+				// Fallback to System.loadLibrary for non-React Native environments
+				System.loadLibrary("jpeg-turbo1500");
+				System.loadLibrary("usb100");
+				System.loadLibrary("uvc");
+				System.loadLibrary("UVCCamera");
+			}
 			isLoaded = true;
 		}
 	}
