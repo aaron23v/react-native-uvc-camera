@@ -70,7 +70,11 @@ UVCPreview::UVCPreview(uvc_device_handle_t *devh)
 	captureQueu(NULL),
 	mFrameCallbackObj(NULL),
 	mFrameCallbackFunc(NULL),
-	callbackPixelBytes(2) {
+	preview_thread(0),
+	capture_thread(0),
+	callbackPixelBytes(2),
+	mLastFrame(NULL),
+	mDeviceDisconnected(false) {
 
 	ENTER();
 	pthread_cond_init(&preview_sync, NULL);
@@ -92,6 +96,12 @@ UVCPreview::~UVCPreview() {
 	mCaptureWindow = NULL;
 	clearPreviewFrame();
 	clearCaptureFrame();
+
+	if (mLastFrame) {
+		uvc_free_frame(mLastFrame);
+		mLastFrame = NULL;
+	}
+
 	clear_pool();
 	pthread_mutex_destroy(&preview_mutex);
 	pthread_cond_destroy(&preview_sync);
@@ -286,48 +296,144 @@ void UVCPreview::callbackPixelFormatChanged() {
 	}
 }
 
+static void copyFrame(const uint8_t *src, uint8_t *dest, const int width, int height, const int stride_src, const int stride_dest) {
+	const int h8 = height % 8;
+	for (int i = 0; i < h8; i++) {
+		memcpy(dest, src, width);
+		dest += stride_dest; src += stride_src;
+	}
+	for (int i = 0; i < height; i += 8) {
+		memcpy(dest, src, width);
+		dest += stride_dest; src += stride_src;
+		memcpy(dest, src, width);
+		dest += stride_dest; src += stride_src;
+		memcpy(dest, src, width);
+		dest += stride_dest; src += stride_src;
+		memcpy(dest, src, width);
+		dest += stride_dest; src += stride_src;
+		memcpy(dest, src, width);
+		dest += stride_dest; src += stride_src;
+		memcpy(dest, src, width);
+		dest += stride_dest; src += stride_src;
+		memcpy(dest, src, width);
+		dest += stride_dest; src += stride_src;
+		memcpy(dest, src, width);
+		dest += stride_dest; src += stride_src;
+	}
+}
+
 void UVCPreview::clearDisplay() {
 	ENTER();
 
 	ANativeWindow_Buffer buffer;
-	pthread_mutex_lock(&capture_mutex);
-	{
-		if (LIKELY(mCaptureWindow)) {
-			if (LIKELY(ANativeWindow_lock(mCaptureWindow, &buffer, NULL) == 0)) {
-				uint8_t *dest = (uint8_t *)buffer.bits;
-				const size_t bytes = buffer.width * PREVIEW_PIXEL_BYTES;
-				const int stride = buffer.stride * PREVIEW_PIXEL_BYTES;
-				for (int i = 0; i < buffer.height; i++) {
-					memset(dest, 0, bytes);
-					dest += stride;
+	
+	// When device is disconnected and we have a last frame, display it
+	if (mDeviceDisconnected && mLastFrame) {
+		// For capture window
+		pthread_mutex_lock(&capture_mutex);
+		{
+			if (LIKELY(mCaptureWindow)) {
+				if (LIKELY(ANativeWindow_lock(mCaptureWindow, &buffer, NULL) == 0)) {
+					// Use the last frame data instead of clearing with zeros
+					const uint8_t *src = (uint8_t *)mLastFrame->data;
+					const int src_w = mLastFrame->width * PREVIEW_PIXEL_BYTES;
+					const int src_step = mLastFrame->width * PREVIEW_PIXEL_BYTES;
+					
+					uint8_t *dest = (uint8_t *)buffer.bits;
+					const int dest_w = buffer.width * PREVIEW_PIXEL_BYTES;
+					const int dest_step = buffer.stride * PREVIEW_PIXEL_BYTES;
+					
+					const int w = src_w < dest_w ? src_w : dest_w;
+					const int h = mLastFrame->height < buffer.height ? mLastFrame->height : buffer.height;
+					
+					copyFrame(src, dest, w, h, src_step, dest_step);
+					ANativeWindow_unlockAndPost(mCaptureWindow);
 				}
-				ANativeWindow_unlockAndPost(mCaptureWindow);
 			}
 		}
-	}
-	pthread_mutex_unlock(&capture_mutex);
-	pthread_mutex_lock(&preview_mutex);
-	{
-		if (LIKELY(mPreviewWindow)) {
-			if (LIKELY(ANativeWindow_lock(mPreviewWindow, &buffer, NULL) == 0)) {
-				uint8_t *dest = (uint8_t *)buffer.bits;
-				const size_t bytes = buffer.width * PREVIEW_PIXEL_BYTES;
-				const int stride = buffer.stride * PREVIEW_PIXEL_BYTES;
-				for (int i = 0; i < buffer.height; i++) {
-					memset(dest, 0, bytes);
-					dest += stride;
+		pthread_mutex_unlock(&capture_mutex);
+		
+		// For preview window
+		pthread_mutex_lock(&preview_mutex);
+		{
+			if (LIKELY(mPreviewWindow)) {
+				if (LIKELY(ANativeWindow_lock(mPreviewWindow, &buffer, NULL) == 0)) {
+					// Use the last frame data instead of clearing with zeros
+					const uint8_t *src = (uint8_t *)mLastFrame->data;
+					const int src_w = mLastFrame->width * PREVIEW_PIXEL_BYTES;
+					const int src_step = mLastFrame->width * PREVIEW_PIXEL_BYTES;
+					
+					uint8_t *dest = (uint8_t *)buffer.bits;
+					const int dest_w = buffer.width * PREVIEW_PIXEL_BYTES;
+					const int dest_step = buffer.stride * PREVIEW_PIXEL_BYTES;
+					
+					const int w = src_w < dest_w ? src_w : dest_w;
+					const int h = mLastFrame->height < buffer.height ? mLastFrame->height : buffer.height;
+					
+					copyFrame(src, dest, w, h, src_step, dest_step);
+					ANativeWindow_unlockAndPost(mPreviewWindow);
 				}
-				ANativeWindow_unlockAndPost(mPreviewWindow);
 			}
 		}
+		pthread_mutex_unlock(&preview_mutex);
+	} else {
+		// Original behavior - clear screen with zeros
+		pthread_mutex_lock(&capture_mutex);
+		{
+			if (LIKELY(mCaptureWindow)) {
+				if (LIKELY(ANativeWindow_lock(mCaptureWindow, &buffer, NULL) == 0)) {
+					uint8_t *dest = (uint8_t *)buffer.bits;
+					const size_t bytes = buffer.width * PREVIEW_PIXEL_BYTES;
+					const int stride = buffer.stride * PREVIEW_PIXEL_BYTES;
+					for (int i = 0; i < buffer.height; i++) {
+						memset(dest, 0, bytes);
+						dest += stride;
+					}
+					ANativeWindow_unlockAndPost(mCaptureWindow);
+				}
+			}
+		}
+		pthread_mutex_unlock(&capture_mutex);
+		pthread_mutex_lock(&preview_mutex);
+		{
+			if (LIKELY(mPreviewWindow)) {
+				if (LIKELY(ANativeWindow_lock(mPreviewWindow, &buffer, NULL) == 0)) {
+					uint8_t *dest = (uint8_t *)buffer.bits;
+					const size_t bytes = buffer.width * PREVIEW_PIXEL_BYTES;
+					const int stride = buffer.stride * PREVIEW_PIXEL_BYTES;
+					for (int i = 0; i < buffer.height; i++) {
+						memset(dest, 0, bytes);
+						dest += stride;
+					}
+					ANativeWindow_unlockAndPost(mPreviewWindow);
+				}
+			}
+		}
+		pthread_mutex_unlock(&preview_mutex);
 	}
-	pthread_mutex_unlock(&preview_mutex);
 
 	EXIT();
 }
 
+void UVCPreview::storeLastFrame(uvc_frame_t *frame) {
+	if (!frame) return;
+	
+	// Free existing last frame if present
+	if (mLastFrame) {
+		uvc_free_frame(mLastFrame);
+		mLastFrame = NULL;
+	}
+	
+	// Create new frame and copy data
+	mLastFrame = uvc_allocate_frame(frame->data_bytes);
+	if (mLastFrame) {
+		uvc_duplicate_frame(frame, mLastFrame);
+	}
+}
+
 int UVCPreview::startPreview() {
 	ENTER();
+	onDeviceConnected();
 
 	int result = EXIT_FAILURE;
 	if (!isRunning()) {
@@ -357,30 +463,47 @@ int UVCPreview::stopPreview() {
 	bool b = isRunning();
 	if (LIKELY(b)) {
 		mIsRunning = false;
+		// Signal all threads to exit
 		pthread_cond_signal(&preview_sync);
 		pthread_cond_signal(&capture_sync);
-		if (pthread_join(capture_thread, NULL) != EXIT_SUCCESS) {
-			LOGW("UVCPreview::terminate capture thread: pthread_join failed");
-		}
+	}
+
+	// Join preview_thread first to ensure orderly shutdown
+	if (preview_thread != 0) {
 		if (pthread_join(preview_thread, NULL) != EXIT_SUCCESS) {
 			LOGW("UVCPreview::terminate preview thread: pthread_join failed");
 		}
-		clearDisplay();
+		preview_thread = 0; // Reset to avoid double join
 	}
+
+	// Then join capture_thread
+	if (capture_thread != 0) {
+		if (pthread_join(capture_thread, NULL) != EXIT_SUCCESS) {
+			LOGW("UVCPreview::terminate capture thread: pthread_join failed");
+		}
+		capture_thread = 0; // Reset to avoid double join
+	}
+
+	onDeviceDisconnected();
+	clearDisplay();
 	clearPreviewFrame();
 	clearCaptureFrame();
+
+	// Release ANativeWindows
 	pthread_mutex_lock(&preview_mutex);
 	if (mPreviewWindow) {
 		ANativeWindow_release(mPreviewWindow);
 		mPreviewWindow = NULL;
 	}
 	pthread_mutex_unlock(&preview_mutex);
+
 	pthread_mutex_lock(&capture_mutex);
 	if (mCaptureWindow) {
 		ANativeWindow_release(mCaptureWindow);
 		mCaptureWindow = NULL;
 	}
 	pthread_mutex_unlock(&capture_mutex);
+
 	RETURN(0, int);
 }
 
@@ -389,6 +512,12 @@ int UVCPreview::stopPreview() {
 //**********************************************************************
 void UVCPreview::uvc_preview_frame_callback(uvc_frame_t *frame, void *vptr_args) {
 	UVCPreview *preview = reinterpret_cast<UVCPreview *>(vptr_args);
+	
+	// Reset the disconnected flag since we're receiving frames
+	if (preview->mDeviceDisconnected) {
+		preview->mDeviceDisconnected = false;
+	}
+	
 	if UNLIKELY(!preview->isRunning() || !frame || !frame->frame_format || !frame->data || !frame->data_bytes) return;
 	if (UNLIKELY(
 		((frame->frame_format != UVC_FRAME_FORMAT_MJPEG) && (frame->actual_bytes < preview->frameBytes))
@@ -415,6 +544,8 @@ void UVCPreview::uvc_preview_frame_callback(uvc_frame_t *frame, void *vptr_args)
 			return;
 		}
 		preview->addPreviewFrame(copy);
+	} else {
+		preview->onDeviceDisconnected();
 	}
 }
 
@@ -561,35 +692,10 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
 #endif
 	} else {
 		uvc_perror(result, "failed start_streaming");
+		onDeviceDisconnected();
 	}
 
 	EXIT();
-}
-
-static void copyFrame(const uint8_t *src, uint8_t *dest, const int width, int height, const int stride_src, const int stride_dest) {
-	const int h8 = height % 8;
-	for (int i = 0; i < h8; i++) {
-		memcpy(dest, src, width);
-		dest += stride_dest; src += stride_src;
-	}
-	for (int i = 0; i < height; i += 8) {
-		memcpy(dest, src, width);
-		dest += stride_dest; src += stride_src;
-		memcpy(dest, src, width);
-		dest += stride_dest; src += stride_src;
-		memcpy(dest, src, width);
-		dest += stride_dest; src += stride_src;
-		memcpy(dest, src, width);
-		dest += stride_dest; src += stride_src;
-		memcpy(dest, src, width);
-		dest += stride_dest; src += stride_src;
-		memcpy(dest, src, width);
-		dest += stride_dest; src += stride_src;
-		memcpy(dest, src, width);
-		dest += stride_dest; src += stride_src;
-		memcpy(dest, src, width);
-		dest += stride_dest; src += stride_src;
-	}
 }
 
 
@@ -641,6 +747,9 @@ uvc_frame_t *UVCPreview::draw_preview_one(uvc_frame_t *frame, ANativeWindow **wi
 			if LIKELY(converted) {
 				b = convert_func(frame, converted);
 				if (!b) {
+					// Store this as the last valid frame (in RGBX format)
+					storeLastFrame(converted);
+					
 					pthread_mutex_lock(&preview_mutex);
 					copyToSurface(converted, window);
 					pthread_mutex_unlock(&preview_mutex);
@@ -886,4 +995,14 @@ void UVCPreview::do_capture_callback(JNIEnv *env, uvc_frame_t *frame) {
 		recycle_frame(callback_frame);
 	}
 	EXIT();
+}
+
+void UVCPreview::onDeviceDisconnected() {
+	mDeviceDisconnected = true;
+	// Don't clear display - this will show the last frame
+}
+
+void UVCPreview::onDeviceConnected() {
+	mDeviceDisconnected = false;
+	// Normal operation resumes automatically
 }

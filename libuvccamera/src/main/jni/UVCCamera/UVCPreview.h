@@ -70,6 +70,8 @@ private:
 	ObjectArray<uvc_frame_t *> previewFrames;
 	int previewFormat;
 	size_t previewBytes;
+	uvc_frame_t *mLastFrame;
+	bool mDeviceDisconnected;
 //
 	volatile bool mIsCapturing;
 	ANativeWindow *mCaptureWindow;
@@ -109,6 +111,10 @@ private:
 	void do_capture_idle_loop(JNIEnv *env);
 	void do_capture_callback(JNIEnv *env, uvc_frame_t *frame);
 	void callbackPixelFormatChanged();
+	void storeLastFrame(uvc_frame_t *frame);
+	void onDeviceDisconnected();
+	void onDeviceConnected();
+
 public:
 	UVCPreview(uvc_device_handle_t *devh);
 	~UVCPreview();
