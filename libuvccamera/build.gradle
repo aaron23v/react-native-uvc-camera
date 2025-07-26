@@ -48,7 +48,7 @@ android {
     }
 	sourceSets {
 		main {
-			jniLibs.srcDirs = ['src/main/libs']
+			jniLibs.srcDirs = ['src/main/jniLibs']
 			jni.srcDirs = []
 		}
 	}
@@ -80,7 +80,7 @@ String getNdkBuildPath() {
 task ndkBuild(type: Exec, description: 'Compile JNI source via NDK') {
 	println('executing ndkBuild')
 	def ndkBuildPath = getNdkBuildPath();
-	commandLine ndkBuildPath, '-j8', '-C', file('src/main').absolutePath
+	commandLine ndkBuildPath, '-j8', '-C', file('src/main').absolutePath, "NDK_LIBS_OUT=${file('src/main/jniLibs').absolutePath}"
 }
 
 task ndkClean(type: Exec, description: 'clean JNI libraries') {
