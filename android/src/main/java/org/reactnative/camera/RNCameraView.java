@@ -25,7 +25,6 @@ import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 import com.google.android.gms.vision.barcode.Barcode;
 import com.google.android.gms.vision.face.Face;
-import com.google.android.gms.vision.text.TextBlock;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
@@ -162,7 +161,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
 //          new BarcodeDetectorAsyncTask(delegate, mGoogleBarcodeDetector, correctData, correctWidth, correctHeight, correctRotation).execute();
 //        }
 
-        if (mShouldRecognizeText && cameraView instanceof TextRecognizerAsyncTaskDelegate) {
+        if (mShouldRecognizeText && !textRecognizerTaskLock && cameraView instanceof TextRecognizerAsyncTaskDelegate) {
           textRecognizerTaskLock = true;
           TextRecognizerAsyncTaskDelegate delegate = (TextRecognizerAsyncTaskDelegate) cameraView;
           InputImage image = InputImage.fromBitmap(data, 90);
@@ -173,15 +172,16 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
                             public void onSuccess(Text visionText) {
                               String detectedText = visionText.getText();
                               delegate.onTextRecognized(detectedText, width, height, rotation);
+                              delegate.onTextRecognizerTaskCompleted();
                             }
                           })
                           .addOnFailureListener(
                                   new OnFailureListener() {
                                     @Override
                                     public void onFailure(@NonNull Exception e) {
+                                      delegate.onTextRecognizerTaskCompleted();
                                     }
                                   });
-//          new TextRecognizerAsyncTask(delegate, mTextRecognizer, correctData, correctWidth, correctHeight, correctRotation).execute();
         }
       }
     });

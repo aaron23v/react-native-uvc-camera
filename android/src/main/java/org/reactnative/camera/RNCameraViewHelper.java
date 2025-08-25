@@ -16,7 +16,6 @@ import com.facebook.react.uimanager.UIManagerModule;
 import com.google.android.cameraview.CameraView;
 import com.google.android.gms.vision.barcode.Barcode;
 import com.google.android.gms.vision.face.Face;
-import com.google.android.gms.vision.text.TextBlock;
 import com.google.zxing.Result;
 import org.reactnative.camera.events.*;
 import org.reactnative.camera.utils.ImageDimensions;
