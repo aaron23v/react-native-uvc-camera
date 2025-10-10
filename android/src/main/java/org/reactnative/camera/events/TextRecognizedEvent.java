@@ -73,9 +73,18 @@ public class TextRecognizedEvent extends Event<TextRecognizedEvent> {
     // Create a copy of textBlocks to avoid ObjectAlreadyConsumedException
     // when event is reused from the pool
     WritableArray textBlocksCopy = Arguments.createArray();
+    StringBuilder concatenatedText = new StringBuilder();
     for (int i = 0; i < mTextBlocks.size(); i++) {
-      textBlocksCopy.pushMap(mTextBlocks.getMap(i));
+      ReadableMap block = mTextBlocks.getMap(i);
+      textBlocksCopy.pushMap(block);
+
+      // Concatenate all text for backward compatibility
+      if (block.hasKey("text")) {
+        concatenatedText.append(block.getString("text"));
+      }
     }
+
+    event.putString("text", concatenatedText.toString());
     event.putArray("textBlocks", textBlocksCopy);
     event.putInt("target", getViewTag());
 
