@@ -1,6 +1,8 @@
 package org.reactnative.camera.tasks;
 
+import com.facebook.react.bridge.WritableArray;
+
 public interface TextRecognizerAsyncTaskDelegate {
-  void onTextRecognized(String text, int sourceWidth, int sourceHeight, int sourceRotation);
+  void onTextRecognized(WritableArray textBlocks, int sourceWidth, int sourceHeight, int sourceRotation);
   void onTextRecognizerTaskCompleted();
 }

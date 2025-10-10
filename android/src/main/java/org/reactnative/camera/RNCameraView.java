@@ -164,14 +164,80 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
         if (mShouldRecognizeText && !textRecognizerTaskLock && cameraView instanceof TextRecognizerAsyncTaskDelegate) {
           textRecognizerTaskLock = true;
           TextRecognizerAsyncTaskDelegate delegate = (TextRecognizerAsyncTaskDelegate) cameraView;
-          InputImage image = InputImage.fromBitmap(data, 90);
+          InputImage image = InputImage.fromBitmap(data, correctRotation);
           Task<Text> result =
                   mTextRecognizer.process(image)
                           .addOnSuccessListener(new OnSuccessListener<Text>() {
                             @Override
                             public void onSuccess(Text visionText) {
-                              String detectedText = visionText.getText();
-                              delegate.onTextRecognized(detectedText, width, height, rotation);
+                              WritableArray textBlocks = Arguments.createArray();
+
+                              for (Text.TextBlock block : visionText.getTextBlocks()) {
+                                WritableMap blockData = Arguments.createMap();
+                                blockData.putString("text", block.getText());
+
+                                // Add bounding box
+                                if (block.getBoundingBox() != null) {
+                                  WritableMap bounds = Arguments.createMap();
+                                  bounds.putInt("left", block.getBoundingBox().left);
+                                  bounds.putInt("top", block.getBoundingBox().top);
+                                  bounds.putInt("width", block.getBoundingBox().width());
+                                  bounds.putInt("height", block.getBoundingBox().height());
+                                  blockData.putMap("bounds", bounds);
+                                }
+
+                                // Add corner points
+                                if (block.getCornerPoints() != null) {
+                                  WritableArray corners = Arguments.createArray();
+                                  for (android.graphics.Point point : block.getCornerPoints()) {
+                                    WritableMap cornerPoint = Arguments.createMap();
+                                    cornerPoint.putInt("x", point.x);
+                                    cornerPoint.putInt("y", point.y);
+                                    corners.pushMap(cornerPoint);
+                                  }
+                                  blockData.putArray("cornerPoints", corners);
+                                }
+
+                                // Add lines
+                                WritableArray linesArray = Arguments.createArray();
+                                for (Text.Line line : block.getLines()) {
+                                  WritableMap lineData = Arguments.createMap();
+                                  lineData.putString("text", line.getText());
+
+                                  if (line.getBoundingBox() != null) {
+                                    WritableMap lineBounds = Arguments.createMap();
+                                    lineBounds.putInt("left", line.getBoundingBox().left);
+                                    lineBounds.putInt("top", line.getBoundingBox().top);
+                                    lineBounds.putInt("width", line.getBoundingBox().width());
+                                    lineBounds.putInt("height", line.getBoundingBox().height());
+                                    lineData.putMap("bounds", lineBounds);
+                                  }
+
+                                  // Add elements (words)
+                                  WritableArray elementsArray = Arguments.createArray();
+                                  for (Text.Element element : line.getElements()) {
+                                    WritableMap elementData = Arguments.createMap();
+                                    elementData.putString("text", element.getText());
+
+                                    if (element.getBoundingBox() != null) {
+                                      WritableMap elementBounds = Arguments.createMap();
+                                      elementBounds.putInt("left", element.getBoundingBox().left);
+                                      elementBounds.putInt("top", element.getBoundingBox().top);
+                                      elementBounds.putInt("width", element.getBoundingBox().width());
+                                      elementBounds.putInt("height", element.getBoundingBox().height());
+                                      elementData.putMap("bounds", elementBounds);
+                                    }
+
+                                    elementsArray.pushMap(elementData);
+                                  }
+                                  lineData.putArray("elements", elementsArray);
+                                  linesArray.pushMap(lineData);
+                                }
+                                blockData.putArray("lines", linesArray);
+                                textBlocks.pushMap(blockData);
+                              }
+
+                              delegate.onTextRecognized(textBlocks, correctWidth, correctHeight, correctRotation);
                               delegate.onTextRecognizerTaskCompleted();
                             }
                           })
@@ -179,6 +245,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
                                   new OnFailureListener() {
                                     @Override
                                     public void onFailure(@NonNull Exception e) {
+                                      Log.e("RNCamera", "Text recognition failed", e);
                                       delegate.onTextRecognizerTaskCompleted();
                                     }
                                   });
@@ -406,9 +473,9 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   }
 
   /**
-   * Initial setup of the text recongizer
+   * Initial setup of the text recognizer
    */
-  private void setupTextRecongnizer() {
+  private void setupTextRecognizer() {
     mTextRecognizer =  TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
   }
 
@@ -444,22 +511,21 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
 
   public void setShouldRecognizeText(boolean shouldRecognizeText) {
     if (shouldRecognizeText && mTextRecognizer == null) {
-      setupTextRecongnizer();
+      setupTextRecognizer();
     }
     this.mShouldRecognizeText = shouldRecognizeText;
     setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes || mShouldRecognizeText);
   }
 
   @Override
-  public void onTextRecognized(String text, int sourceWidth, int sourceHeight, int sourceRotation) {
+  public void onTextRecognized(WritableArray textBlocks, int sourceWidth, int sourceHeight, int sourceRotation) {
     if (!mShouldRecognizeText) {
       return;
     }
 
-//    SparseArray<TextBlock> textBlocksDetected = textBlocks == null ? new SparseArray<TextBlock>() : textBlocks;
     ImageDimensions dimensions = new ImageDimensions(sourceWidth, sourceHeight, sourceRotation, getFacing());
 
-    RNCameraViewHelper.emitTextRecognizedEvent(this, text, dimensions);
+    RNCameraViewHelper.emitTextRecognizedEvent(this, textBlocks, dimensions);
   }
 
   @Override

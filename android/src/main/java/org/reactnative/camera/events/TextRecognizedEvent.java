@@ -24,14 +24,14 @@ public class TextRecognizedEvent extends Event<TextRecognizedEvent> {
 
   private double mScaleX;
   private double mScaleY;
-  private String mTextBlocks;
+  private WritableArray mTextBlocks;
   private ImageDimensions mImageDimensions;
 
   private TextRecognizedEvent() {}
 
   public static TextRecognizedEvent obtain(
       int viewTag,
-      String textBlocks,
+      WritableArray textBlocks,
       ImageDimensions dimensions,
       double scaleX,
       double scaleY) {
@@ -45,7 +45,7 @@ public class TextRecognizedEvent extends Event<TextRecognizedEvent> {
 
   private void init(
       int viewTag,
-      String textBlocks,
+      WritableArray textBlocks,
       ImageDimensions dimensions,
       double scaleX,
       double scaleY) {
@@ -68,9 +68,23 @@ public class TextRecognizedEvent extends Event<TextRecognizedEvent> {
 
   private WritableMap serializeEventData() {
     WritableMap event = Arguments.createMap();
-    event.putString("type", "textBlock");
-    event.putString("text", mTextBlocks);
+    event.putString("type", "textRecognition");
+    event.putArray("textBlocks", mTextBlocks);
     event.putInt("target", getViewTag());
+
+    // Add image dimensions for coordinate transformation
+    WritableMap dimensions = Arguments.createMap();
+    dimensions.putInt("width", mImageDimensions.getWidth());
+    dimensions.putInt("height", mImageDimensions.getHeight());
+    dimensions.putInt("rotation", mImageDimensions.getRotation());
+    event.putMap("dimensions", dimensions);
+
+    // Add scale factors for coordinate transformation
+    WritableMap scale = Arguments.createMap();
+    scale.putDouble("x", mScaleX);
+    scale.putDouble("y", mScaleY);
+    event.putMap("scale", scale);
+
     return event;
   }
 
