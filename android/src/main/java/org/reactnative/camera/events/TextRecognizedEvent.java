@@ -69,7 +69,14 @@ public class TextRecognizedEvent extends Event<TextRecognizedEvent> {
   private WritableMap serializeEventData() {
     WritableMap event = Arguments.createMap();
     event.putString("type", "textRecognition");
-    event.putArray("textBlocks", mTextBlocks);
+
+    // Create a copy of textBlocks to avoid ObjectAlreadyConsumedException
+    // when event is reused from the pool
+    WritableArray textBlocksCopy = Arguments.createArray();
+    for (int i = 0; i < mTextBlocks.size(); i++) {
+      textBlocksCopy.pushMap(mTextBlocks.getMap(i));
+    }
+    event.putArray("textBlocks", textBlocksCopy);
     event.putInt("target", getViewTag());
 
     // Add image dimensions for coordinate transformation
