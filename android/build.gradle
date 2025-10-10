@@ -76,6 +76,10 @@ dependencies {
   implementation "androidx.legacy:legacy-support-v4:$supportLibVersion"
   implementation 'com.google.android.gms:play-services-mlkit-text-recognition:19.0.1'
 
+  // TensorFlow Lite dependencies for custom model
+  implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+  implementation 'org.tensorflow:tensorflow-lite-gpu:2.14.0'
+  implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
 
   implementation project(':libuvccamera')
   implementation project(':usbCameraCommon')

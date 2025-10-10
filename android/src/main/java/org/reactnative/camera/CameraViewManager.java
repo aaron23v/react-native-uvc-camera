@@ -165,4 +165,29 @@ public class CameraViewManager extends ViewGroupManager<RNCameraView> {
   public void setTextRecognizing(RNCameraView view, boolean textRecognizerEnabled) {
     view.setShouldRecognizeText(textRecognizerEnabled);
   }
+
+  @ReactProp(name = "textRecognizerEngine")
+  public void setTextRecognizerEngine(RNCameraView view, String engine) {
+    view.setTextRecognizerEngine(engine);
+  }
+
+  @ReactProp(name = "textRecognizerModelPath")
+  public void setTextRecognizerModelPath(RNCameraView view, String path) {
+    view.setTextRecognizerModelPath(path);
+  }
+
+  @ReactProp(name = "textRecognizerConfidenceThreshold")
+  public void setTextRecognizerConfidenceThreshold(RNCameraView view, float threshold) {
+    view.setTextRecognizerConfidenceThreshold(threshold);
+  }
+
+  @ReactProp(name = "textRecognizerIouThreshold")
+  public void setTextRecognizerIouThreshold(RNCameraView view, float threshold) {
+    view.setTextRecognizerIouThreshold(threshold);
+  }
+
+  @ReactProp(name = "textRecognizerUseGpu")
+  public void setTextRecognizerUseGpu(RNCameraView view, boolean useGpu) {
+    view.setTextRecognizerUseGpu(useGpu);
+  }
 }

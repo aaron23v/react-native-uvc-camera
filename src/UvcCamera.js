@@ -192,6 +192,11 @@ export default class Camera extends React.Component<PropsType, StateType> {
     captureAudio: PropTypes.bool,
     useCamera2Api: PropTypes.bool,
     playSoundOnCapture: PropTypes.bool,
+    textRecognizerEngine: PropTypes.oneOf(['mlkit', 'tflite']),
+    textRecognizerModelPath: PropTypes.string,
+    textRecognizerConfidenceThreshold: PropTypes.number,
+    textRecognizerIouThreshold: PropTypes.number,
+    textRecognizerUseGpu: PropTypes.bool,
   };
 
   static defaultProps: Object = {
@@ -224,6 +229,10 @@ export default class Camera extends React.Component<PropsType, StateType> {
     captureAudio: false,
     useCamera2Api: false,
     playSoundOnCapture: false,
+    textRecognizerEngine: 'mlkit',
+    textRecognizerConfidenceThreshold: 0.5,
+    textRecognizerIouThreshold: 0.5,
+    textRecognizerUseGpu: true,
   };
 
   _cameraRef: ?Object;
@@ -393,6 +402,11 @@ export default class Camera extends React.Component<PropsType, StateType> {
       delete newProps.googleVisionBarcodeDetectorEnabled;
       delete newProps.ratio;
       delete newProps.textRecognizerEnabled;
+      delete newProps.textRecognizerEngine;
+      delete newProps.textRecognizerModelPath;
+      delete newProps.textRecognizerConfidenceThreshold;
+      delete newProps.textRecognizerIouThreshold;
+      delete newProps.textRecognizerUseGpu;
     }
 
     return newProps;
@@ -418,6 +432,11 @@ const RNCamera = requireNativeComponent('UvcCamera', Camera, {
     googleVisionBarcodeDetectorEnabled: true,
     faceDetectorEnabled: true,
     textRecognizerEnabled: true,
+    textRecognizerEngine: true,
+    textRecognizerModelPath: true,
+    textRecognizerConfidenceThreshold: true,
+    textRecognizerIouThreshold: true,
+    textRecognizerUseGpu: true,
     importantForAccessibility: true,
     onBarCodeRead: true,
     onGoogleVisionBarcodesDetected: true,
