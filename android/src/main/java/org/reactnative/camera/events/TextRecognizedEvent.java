@@ -74,14 +74,31 @@ public class TextRecognizedEvent extends Event<TextRecognizedEvent> {
     // when event is reused from the pool
     WritableArray textBlocksCopy = Arguments.createArray();
     StringBuilder concatenatedText = new StringBuilder();
-    for (int i = 0; i < mTextBlocks.size(); i++) {
-      ReadableMap block = mTextBlocks.getMap(i);
-      textBlocksCopy.pushMap(block);
 
-      // Concatenate all text for backward compatibility
-      if (block.hasKey("text")) {
-        concatenatedText.append(block.getString("text"));
+    try {
+      for (int i = 0; i < mTextBlocks.size(); i++) {
+        ReadableMap block = mTextBlocks.getMap(i);
+        if (block != null) {
+          // Create a new WritableMap copy to avoid consumption issues
+          WritableMap blockCopy = Arguments.createMap();
+          blockCopy.merge(block);
+          textBlocksCopy.pushMap(blockCopy);
+
+          // Concatenate all text for backward compatibility
+          try {
+            if (block.hasKey("text")) {
+              String text = block.getString("text");
+              if (text != null) {
+                concatenatedText.append(text);
+              }
+            }
+          } catch (Exception e) {
+            // Ignore individual block errors
+          }
+        }
       }
+    } catch (Exception e) {
+      // If there's an error reading blocks, just continue with empty text
     }
 
     event.putString("text", concatenatedText.toString());
