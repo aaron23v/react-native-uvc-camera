@@ -39,8 +39,9 @@ import Camera from 'react-native-uvc-camera';
 // Option 1: Use MLKit (default)
 <Camera
   onTextRecognized={(event) => {
-    const { textBlocks } = event.nativeEvent;
-    console.log('MLKit detected:', textBlocks);
+    const { text, textBlocks } = event.nativeEvent;
+    console.log('All detected text:', text);  // Concatenated string
+    console.log('MLKit blocks:', textBlocks);  // Detailed blocks
   }}
 />
 
@@ -52,7 +53,9 @@ import Camera from 'react-native-uvc-camera';
   textRecognizerIouThreshold={0.4}
   textRecognizerUseGpu={true}
   onTextRecognized={(event) => {
-    const { textBlocks } = event.nativeEvent;
+    const { text, textBlocks } = event.nativeEvent;
+
+    console.log('All electrodes:', text);  // e.g., "AF7AF8FZ"
 
     textBlocks.forEach(block => {
       console.log(`EEG Electrode: ${block.text}`);
@@ -81,7 +84,18 @@ import Camera from 'react-native-uvc-camera';
 
 ### Output Format
 
-**TFLite Output:**
+**Event Structure (both engines):**
+```json
+{
+  "type": "textRecognition",
+  "text": "AF7AF8FZ",  // Concatenated text from all blocks
+  "textBlocks": [...],  // Array of detected blocks
+  "dimensions": {...},
+  "scale": {...}
+}
+```
+
+**TFLite Text Block Format:**
 ```json
 {
   "text": "AF7",
@@ -103,7 +117,7 @@ import Camera from 'react-native-uvc-camera';
 }
 ```
 
-**MLKit Output:**
+**MLKit Text Block Format:**
 ```json
 {
   "text": "Sample Text",
@@ -172,6 +186,7 @@ Adjust textRecognizerIouThreshold (default 0.5)
 
 ### Phase 1: Abstraction Layer ✓
 - `BaseTextRecognizer.java` - Interface for all recognizers
+  - `OnTextRecognizedListener.onSuccess(WritableArray textBlocks, String concatenatedText)` - Updated to accept both detailed blocks and concatenated text
 - `TextRecognizerConfig.java` - Configuration management
 
 ### Phase 2: Dependencies ✓
@@ -186,16 +201,19 @@ Adjust textRecognizerIouThreshold (default 0.5)
   - NMS algorithm
   - GPU acceleration support
   - 13-class EEG electrode detection
+  - Builds concatenated text while creating blocks to avoid React Native bridge consumption issues
 
 ### Phase 4: Factory Pattern ✓
 - `MLKitTextRecognizer.java` - MLKit wrapper
+  - Builds concatenated text while creating blocks for backward compatibility
 - `TextRecognizerFactory.java` - Engine selection factory
 
 ### Phase 5: RNCameraView Integration ✓
 - Updated to use `BaseTextRecognizer` interface
 - Added configuration methods
-- Updated frame processing callback
+- Updated frame processing callback to receive both textBlocks and concatenatedText
 - Fixed lifecycle methods
+- Passes both parameters to helper for event emission
 
 ### Phase 6: JavaScript API ✓
 - Added `@ReactProp` methods to `CameraViewManager.java`
@@ -205,6 +223,13 @@ Adjust textRecognizerIouThreshold (default 0.5)
 ### Phase 7: Model Bundling ✓
 - **Note**: Model is NOT bundled in the library to keep it lightweight
 - Users must bundle the model in their React Native app (see usage guide below)
+
+### Phase 8: Event System Enhancements ✓
+- `RNCameraViewHelper.java` - Updated to accept pre-built concatenated text
+  - `emitTextRecognizedEvent(ViewGroup, WritableArray, String, ImageDimensions)` signature
+- `TextRecognizedEvent.java` - Simplified to use pre-built string
+  - Avoids React Native bridge consumption issues by not reading from consumed WritableMaps
+  - Maintains backward compatibility with both `text` string and `textBlocks` array
 
 ## 📚 Reference Documentation (Original Implementation Plans)
 
@@ -251,10 +276,17 @@ public class MLKitTextRecognizer implements BaseTextRecognizer {
                 @Override
                 public void onSuccess(Text visionText) {
                     WritableArray textBlocks = Arguments.createArray();
+                    StringBuilder concatenatedText = new StringBuilder();
 
                     for (Text.TextBlock block : visionText.getTextBlocks()) {
                         WritableMap blockData = Arguments.createMap();
-                        blockData.putString("text", block.getText());
+                        String blockText = block.getText();
+                        blockData.putString("text", blockText);
+
+                        // Build concatenated text
+                        if (blockText != null) {
+                            concatenatedText.append(blockText);
+                        }
 
                         // Add bounding box
                         if (block.getBoundingBox() != null) {
@@ -317,7 +349,7 @@ public class MLKitTextRecognizer implements BaseTextRecognizer {
                         textBlocks.pushMap(blockData);
                     }
 
-                    listener.onSuccess(textBlocks);
+                    listener.onSuccess(textBlocks, concatenatedText.toString());
                 }
             })
             .addOnFailureListener(new OnFailureListener() {
@@ -432,12 +464,12 @@ if (mShouldRecognizeText && !textRecognizerTaskLock) {
     mTextRecognizer.process(data, correctRotation,
         new BaseTextRecognizer.OnTextRecognizedListener() {
             @Override
-            public void onSuccess(WritableArray textBlocks) {
+            public void onSuccess(WritableArray textBlocks, String concatenatedText) {
                 ImageDimensions dimensions = new ImageDimensions(
                     correctWidth, correctHeight, correctRotation, getFacing()
                 );
                 RNCameraViewHelper.emitTextRecognizedEvent(
-                    RNCameraView.this, textBlocks, dimensions
+                    RNCameraView.this, textBlocks, concatenatedText, dimensions
                 );
                 textRecognizerTaskLock = false;
             }
@@ -555,8 +587,9 @@ import Camera from 'react-native-uvc-camera';
 // Option 1: Use MLKit (default)
 <Camera
   onTextRecognized={(event) => {
-    const { textBlocks } = event.nativeEvent;
-    console.log('MLKit detected:', textBlocks);
+    const { text, textBlocks } = event.nativeEvent;
+    console.log('All detected text:', text);  // Concatenated string
+    console.log('MLKit blocks:', textBlocks);  // Detailed blocks
   }}
 />
 
@@ -568,7 +601,9 @@ import Camera from 'react-native-uvc-camera';
   textRecognizerIouThreshold={0.4}
   textRecognizerUseGpu={true}
   onTextRecognized={(event) => {
-    const { textBlocks } = event.nativeEvent;
+    const { text, textBlocks } = event.nativeEvent;
+
+    console.log('All electrodes:', text);  // e.g., "AF7AF8FZ"
 
     textBlocks.forEach(block => {
       console.log(`EEG Electrode: ${block.text}`);
@@ -589,8 +624,9 @@ const engine = Math.random() > 0.5 ? 'tflite' : 'mlkit';
 <Camera
   textRecognizerEngine={engine}
   onTextRecognized={(event) => {
+    const { text } = event.nativeEvent;
     // Log which engine was used
-    console.log(`Engine: ${engine}`);
+    console.log(`Engine: ${engine}, detected: ${text}`);
   }}
 />
 ```

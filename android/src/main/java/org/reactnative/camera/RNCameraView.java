@@ -51,7 +51,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class RNCameraView extends CameraView implements LifecycleEventListener, BarCodeScannerAsyncTaskDelegate, FaceDetectorAsyncTaskDelegate,
-    BarcodeDetectorAsyncTaskDelegate, TextRecognizerAsyncTaskDelegate {
+    BarcodeDetectorAsyncTaskDelegate {
   private ThemedReactContext mThemedReactContext;
   private Queue<Promise> mPictureTakenPromises = new ConcurrentLinkedQueue<>();
   private Map<Promise, ReadableMap> mPictureTakenOptions = new ConcurrentHashMap<>();
@@ -165,9 +165,8 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
 //          new BarcodeDetectorAsyncTask(delegate, mGoogleBarcodeDetector, correctData, correctWidth, correctHeight, correctRotation).execute();
 //        }
 
-        if (mShouldRecognizeText && !textRecognizerTaskLock && cameraView instanceof TextRecognizerAsyncTaskDelegate) {
+        if (mShouldRecognizeText && !textRecognizerTaskLock) {
           textRecognizerTaskLock = true;
-          TextRecognizerAsyncTaskDelegate delegate = (TextRecognizerAsyncTaskDelegate) cameraView;
 
           mTextRecognizer.process(data, correctRotation,
               new BaseTextRecognizer.OnTextRecognizedListener() {
@@ -493,21 +492,8 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes || mShouldRecognizeText);
   }
 
-  @Override
-  public void onTextRecognized(WritableArray textBlocks, int sourceWidth, int sourceHeight, int sourceRotation) {
-    if (!mShouldRecognizeText) {
-      return;
-    }
-
-    ImageDimensions dimensions = new ImageDimensions(sourceWidth, sourceHeight, sourceRotation, getFacing());
-
-    RNCameraViewHelper.emitTextRecognizedEvent(this, textBlocks, dimensions);
-  }
-
-  @Override
-  public void onTextRecognizerTaskCompleted() {
-    textRecognizerTaskLock = false;
-  }
+  // Legacy callback methods removed - now using BaseTextRecognizer interface directly
+  // The text recognition is handled inline in the onFramePreview callback (lines 172-191)
 
   @Override
   public void onHostResume() {
