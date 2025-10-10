@@ -4,12 +4,34 @@
 
 ## 🚀 Quick Start
 
-### Basic Usage
+### Step 1: Bundle Your TFLite Model (Required for TFLite Engine)
+
+The library does **NOT** include any TFLite models to keep it lightweight. You must bundle your own model in your React Native app:
+
+```bash
+# In your React Native app project
+mkdir -p android/app/src/main/assets/models
+cp path/to/your/model.tflite android/app/src/main/assets/models/
+```
+
+**File Structure:**
+```
+your-react-native-app/
+├── android/
+│   └── app/
+│       └── src/
+│           └── main/
+│               └── assets/
+│                   └── models/
+│                       └── your_model.tflite    <-- Place your model here
+```
+
+### Step 2: Basic Usage
 
 The library now supports **two text recognition engines** that can be switched at runtime:
 
-1. **MLKit** (default) - Google's on-device text recognition
-2. **TFLite** - Custom EEG electrode detection model
+1. **MLKit** (default) - Google's on-device text recognition (no model required)
+2. **TFLite** - Custom model support (requires you to bundle your own model)
 
 ```javascript
 import Camera from 'react-native-uvc-camera';
@@ -25,6 +47,7 @@ import Camera from 'react-native-uvc-camera';
 // Option 2: Use Custom TFLite Model
 <Camera
   textRecognizerEngine="tflite"
+  textRecognizerModelPath="models/your_model.tflite"
   textRecognizerConfidenceThreshold={0.6}
   textRecognizerIouThreshold={0.4}
   textRecognizerUseGpu={true}
@@ -180,8 +203,8 @@ Adjust textRecognizerIouThreshold (default 0.5)
 - Added iOS prop filtering
 
 ### Phase 7: Model Bundling ✓
-- Created `android/src/main/assets/models/` directory
-- Copied `best_float32.tflite` (12MB) to assets
+- **Note**: Model is NOT bundled in the library to keep it lightweight
+- Users must bundle the model in their React Native app (see usage guide below)
 
 ## 📚 Reference Documentation (Original Implementation Plans)
 
@@ -540,6 +563,7 @@ import Camera from 'react-native-uvc-camera';
 // Option 2: Use Custom TFLite Model
 <Camera
   textRecognizerEngine="tflite"
+  textRecognizerModelPath="models/your_model.tflite"
   textRecognizerConfidenceThreshold={0.6}
   textRecognizerIouThreshold={0.4}
   textRecognizerUseGpu={true}
