@@ -25,6 +25,7 @@ public class TextRecognizedEvent extends Event<TextRecognizedEvent> {
   private double mScaleX;
   private double mScaleY;
   private WritableArray mTextBlocks;
+  private String mConcatenatedText;
   private ImageDimensions mImageDimensions;
 
   private TextRecognizedEvent() {}
@@ -32,6 +33,7 @@ public class TextRecognizedEvent extends Event<TextRecognizedEvent> {
   public static TextRecognizedEvent obtain(
       int viewTag,
       WritableArray textBlocks,
+      String concatenatedText,
       ImageDimensions dimensions,
       double scaleX,
       double scaleY) {
@@ -39,18 +41,20 @@ public class TextRecognizedEvent extends Event<TextRecognizedEvent> {
     if (event == null) {
       event = new TextRecognizedEvent();
     }
-    event.init(viewTag, textBlocks, dimensions, scaleX, scaleY);
+    event.init(viewTag, textBlocks, concatenatedText, dimensions, scaleX, scaleY);
     return event;
   }
 
   private void init(
       int viewTag,
       WritableArray textBlocks,
+      String concatenatedText,
       ImageDimensions dimensions,
       double scaleX,
       double scaleY) {
     super.init(viewTag);
     mTextBlocks = textBlocks;
+    mConcatenatedText = concatenatedText;
     mImageDimensions = dimensions;
     mScaleX = scaleX;
     mScaleY = scaleY;
@@ -69,40 +73,8 @@ public class TextRecognizedEvent extends Event<TextRecognizedEvent> {
   private WritableMap serializeEventData() {
     WritableMap event = Arguments.createMap();
     event.putString("type", "textRecognition");
-
-    // Create a copy of textBlocks to avoid ObjectAlreadyConsumedException
-    // when event is reused from the pool
-    WritableArray textBlocksCopy = Arguments.createArray();
-    StringBuilder concatenatedText = new StringBuilder();
-
-    try {
-      for (int i = 0; i < mTextBlocks.size(); i++) {
-        ReadableMap block = mTextBlocks.getMap(i);
-        if (block != null) {
-          // Create a new WritableMap copy to avoid consumption issues
-          WritableMap blockCopy = Arguments.createMap();
-          blockCopy.merge(block);
-          textBlocksCopy.pushMap(blockCopy);
-
-          // Concatenate all text for backward compatibility
-          try {
-            if (block.hasKey("text")) {
-              String text = block.getString("text");
-              if (text != null) {
-                concatenatedText.append(text);
-              }
-            }
-          } catch (Exception e) {
-            // Ignore individual block errors
-          }
-        }
-      }
-    } catch (Exception e) {
-      // If there's an error reading blocks, just continue with empty text
-    }
-
-    event.putString("text", concatenatedText.toString());
-    event.putArray("textBlocks", textBlocksCopy);
+    event.putString("text", mConcatenatedText);
+    event.putArray("textBlocks", mTextBlocks);
     event.putInt("target", getViewTag());
 
     // Add image dimensions for coordinate transformation

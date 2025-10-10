@@ -123,13 +123,13 @@ public class TFLiteTextRecognizer implements BaseTextRecognizer {
             List<DetectionBox> filteredBoxes = applyNMS(boxes);
 
             // 5. Convert to React Native format
-            WritableArray textBlocks = convertToTextBlocks(filteredBoxes);
+            TextRecognitionResult result = convertToTextBlocks(filteredBoxes);
 
             long endTime = System.currentTimeMillis();
             Log.d(TAG, String.format("Inference complete: %dms, detected %d objects",
                 endTime - startTime, filteredBoxes.size()));
 
-            listener.onSuccess(textBlocks);
+            listener.onSuccess(result.textBlocks, result.concatenatedText);
 
         } catch (Exception e) {
             Log.e(TAG, "TFLite inference failed", e);
@@ -278,10 +278,21 @@ public class TFLiteTextRecognizer implements BaseTextRecognizer {
     }
 
     /**
-     * Convert detections to React Native format
+     * Convert detections to React Native format and return concatenated text
      */
-    private WritableArray convertToTextBlocks(List<DetectionBox> boxes) {
+    private class TextRecognitionResult {
+        WritableArray textBlocks;
+        String concatenatedText;
+
+        TextRecognitionResult(WritableArray textBlocks, String concatenatedText) {
+            this.textBlocks = textBlocks;
+            this.concatenatedText = concatenatedText;
+        }
+    }
+
+    private TextRecognitionResult convertToTextBlocks(List<DetectionBox> boxes) {
         WritableArray textBlocks = Arguments.createArray();
+        StringBuilder concatenatedText = new StringBuilder();
 
         for (DetectionBox box : boxes) {
             WritableMap blockData = Arguments.createMap();
@@ -290,6 +301,9 @@ public class TFLiteTextRecognizer implements BaseTextRecognizer {
             blockData.putString("text", box.label);
             blockData.putDouble("confidence", box.confidence);
             blockData.putInt("classIndex", box.classIdx);
+
+            // Build concatenated text
+            concatenatedText.append(box.label);
 
             // Rotated bounding box (Python lines 97-106, 115-126)
             WritableMap bounds = Arguments.createMap();
@@ -307,7 +321,7 @@ public class TFLiteTextRecognizer implements BaseTextRecognizer {
             textBlocks.pushMap(blockData);
         }
 
-        return textBlocks;
+        return new TextRecognitionResult(textBlocks, concatenatedText.toString());
     }
 
     /**

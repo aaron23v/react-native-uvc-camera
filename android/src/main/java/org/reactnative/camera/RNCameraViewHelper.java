@@ -239,6 +239,7 @@ public class RNCameraViewHelper {
   public static void emitTextRecognizedEvent(
       ViewGroup view,
       WritableArray textBlocks,
+      String concatenatedText,
       ImageDimensions dimensions) {
     float density = view.getResources().getDisplayMetrics().density;
 
@@ -248,6 +249,7 @@ public class RNCameraViewHelper {
     TextRecognizedEvent event = TextRecognizedEvent.obtain(
         view.getId(),
         textBlocks,
+        concatenatedText,
         dimensions,
         scaleX,
         scaleY

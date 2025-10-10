@@ -41,10 +41,17 @@ public class MLKitTextRecognizer implements BaseTextRecognizer {
                 @Override
                 public void onSuccess(Text visionText) {
                     WritableArray textBlocks = Arguments.createArray();
+                    StringBuilder concatenatedText = new StringBuilder();
 
                     for (Text.TextBlock block : visionText.getTextBlocks()) {
                         WritableMap blockData = Arguments.createMap();
-                        blockData.putString("text", block.getText());
+                        String blockText = block.getText();
+                        blockData.putString("text", blockText);
+
+                        // Build concatenated text
+                        if (blockText != null) {
+                            concatenatedText.append(blockText);
+                        }
 
                         // Add bounding box
                         if (block.getBoundingBox() != null) {
@@ -111,7 +118,7 @@ public class MLKitTextRecognizer implements BaseTextRecognizer {
                     Log.d(TAG, String.format("MLKit inference complete: %dms, detected %d blocks",
                         endTime - startTime, textBlocks.size()));
 
-                    listener.onSuccess(textBlocks);
+                    listener.onSuccess(textBlocks, concatenatedText.toString());
                 }
             })
             .addOnFailureListener(new OnFailureListener() {

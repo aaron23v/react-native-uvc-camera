@@ -172,12 +172,12 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
           mTextRecognizer.process(data, correctRotation,
               new BaseTextRecognizer.OnTextRecognizedListener() {
                 @Override
-                public void onSuccess(WritableArray textBlocks) {
+                public void onSuccess(WritableArray textBlocks, String concatenatedText) {
                   ImageDimensions dimensions = new ImageDimensions(
                       correctWidth, correctHeight, correctRotation, getFacing()
                   );
                   RNCameraViewHelper.emitTextRecognizedEvent(
-                      RNCameraView.this, textBlocks, dimensions
+                      RNCameraView.this, textBlocks, concatenatedText, dimensions
                   );
                   textRecognizerTaskLock = false;
                 }

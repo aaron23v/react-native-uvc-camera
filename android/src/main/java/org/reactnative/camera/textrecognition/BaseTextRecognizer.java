@@ -39,8 +39,9 @@ public interface BaseTextRecognizer {
          * Called when recognition succeeds.
          *
          * @param textBlocks Array of recognized text blocks with metadata
+         * @param concatenatedText All detected text concatenated into a single string
          */
-        void onSuccess(WritableArray textBlocks);
+        void onSuccess(WritableArray textBlocks, String concatenatedText);
 
         /**
          * Called when recognition fails.
