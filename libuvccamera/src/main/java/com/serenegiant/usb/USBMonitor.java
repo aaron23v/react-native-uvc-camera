@@ -572,7 +572,14 @@ public final class USBMonitor {
 				final boolean createNew;
 				ctrlBlock = mCtrlBlocks.get(device);
 				if (ctrlBlock == null) {
-					ctrlBlock = new UsbControlBlock(USBMonitor.this, device);
+					try {
+						ctrlBlock = new UsbControlBlock(USBMonitor.this, device);
+					} catch (SecurityException e) {
+						Log.w(TAG, "processConnect: permission revoked, re-requesting");
+						updatePermission(device, false);
+						mUsbManager.requestPermission(device, mPermissionIntent);
+						return;
+					}
 					mCtrlBlocks.put(device, ctrlBlock);
 					createNew = true;
 				} else {
@@ -902,7 +909,11 @@ public final class USBMonitor {
 			if (BuildCheck.isLollipop()) {
 				info.manufacturer = device.getManufacturerName();
 				info.product = device.getProductName();
+				try {
 				info.serial = device.getSerialNumber();
+			} catch (SecurityException e) {
+				Log.w(TAG, "updateDeviceInfo: no permission to get serial number");
+			}
 			}
 			if (BuildCheck.isMarshmallow()) {
 				info.usb_version = device.getVersion();
