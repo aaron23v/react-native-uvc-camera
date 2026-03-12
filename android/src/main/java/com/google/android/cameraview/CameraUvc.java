@@ -287,10 +287,12 @@ class CameraUvc extends CameraViewImpl {
                 handler.postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        if (mCameraHandler.isPreviewing()) {
-                            stopCaptureSession();
+                        if (mCameraHandler != null) {
+                            if (mCameraHandler.isPreviewing()) {
+                                stopCaptureSession();
+                            }
+                            mCameraHandler.close();
                         }
-                        mCameraHandler.close();
 //                        mCameraHandler.release();
 //                        mCameraHandler = null;
                     }
