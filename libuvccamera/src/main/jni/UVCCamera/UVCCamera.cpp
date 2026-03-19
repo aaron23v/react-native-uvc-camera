@@ -136,6 +136,7 @@ void UVCCamera::clearCameraParams() {
  */
 int UVCCamera::connect(int vid, int pid, int fd, int busnum, int devaddr, const char *usbfs) {
 	ENTER();
+	LOGI("connect: vid=%d pid=%d fd=%d bus=%d dev=%d handle=%p", vid, pid, fd, busnum, devaddr, mDeviceHandle);
 	uvc_error_t result = UVC_ERROR_BUSY;
 	if (!mDeviceHandle && fd) {
 		if (mUsbFs)
@@ -190,6 +191,7 @@ int UVCCamera::connect(int vid, int pid, int fd, int busnum, int devaddr, const 
 // カメラを開放する
 int UVCCamera::release() {
 	ENTER();
+	LOGI("release: handle=%p preview=%p", mDeviceHandle, mPreview);
 	stopPreview();
 	// カメラのclose処理
 	if (LIKELY(mDeviceHandle)) {
@@ -200,8 +202,10 @@ int UVCCamera::release() {
 		// プレビューオブジェクトを破棄
 		SAFE_DELETE(mPreview);
 		// カメラをclose
+		LOGI("release: closing device handle=%p", mDeviceHandle);
 		uvc_close(mDeviceHandle);
 		mDeviceHandle = NULL;
+		LOGI("release: device closed");
 	}
 	if (LIKELY(mDevice)) {
 		MARK("カメラを開放");

@@ -38,6 +38,10 @@
 #endif
 
 #include "utilbase.h"
+
+// Direct log macros that bypass LOG_NDEBUG suppression
+#define AMPA_LOG(FMT, ...) __android_log_print(ANDROID_LOG_INFO, "UVCCamera", "[%d*UVCPreview:%d]:" FMT, gettid(), __LINE__, ## __VA_ARGS__)
+#define AMPA_ERR(FMT, ...) __android_log_print(ANDROID_LOG_ERROR, "UVCCamera", "[%d*UVCPreview:%d]:" FMT, gettid(), __LINE__, ## __VA_ARGS__)
 #include "UVCPreview.h"
 #include "libuvc_internal.h"
 
@@ -441,12 +445,15 @@ int UVCPreview::startPreview() {
 		pthread_mutex_lock(&preview_mutex);
 		{
 			if (LIKELY(mPreviewWindow)) {
+				AMPA_LOG("startPreview: creating preview thread, window=%p", mPreviewWindow);
 				result = pthread_create(&preview_thread, NULL, preview_thread_func, (void *)this);
+			} else {
+				AMPA_ERR("startPreview: mPreviewWindow is NULL, cannot start");
 			}
 		}
 		pthread_mutex_unlock(&preview_mutex);
 		if (UNLIKELY(result != EXIT_SUCCESS)) {
-			LOGW("UVCCamera::window does not exist/already running/could not create thread etc.");
+			AMPA_ERR("startPreview: FAILED - window=%p, result=%d", mPreviewWindow, result);
 			mIsRunning = false;
 			pthread_mutex_lock(&preview_mutex);
 			{
@@ -454,6 +461,8 @@ int UVCPreview::startPreview() {
 			}
 			pthread_mutex_unlock(&preview_mutex);
 		}
+	} else {
+		AMPA_LOG("startPreview: already running, skipping");
 	}
 	RETURN(result, int);
 }
@@ -461,6 +470,7 @@ int UVCPreview::startPreview() {
 int UVCPreview::stopPreview() {
 	ENTER();
 	bool b = isRunning();
+	AMPA_LOG("stopPreview: isRunning=%d, preview_thread=%lu, capture_thread=%lu", b, (unsigned long)preview_thread, (unsigned long)capture_thread);
 	if (LIKELY(b)) {
 		mIsRunning = false;
 		// Signal all threads to exit
@@ -510,9 +520,16 @@ int UVCPreview::stopPreview() {
 //**********************************************************************
 //
 //**********************************************************************
+static int sNativeFrameCount = 0;
+
 void UVCPreview::uvc_preview_frame_callback(uvc_frame_t *frame, void *vptr_args) {
 	UVCPreview *preview = reinterpret_cast<UVCPreview *>(vptr_args);
-	
+
+	sNativeFrameCount++;
+	if (sNativeFrameCount == 1 || sNativeFrameCount == 10 || sNativeFrameCount == 50) {
+		AMPA_LOG("uvc_frame_callback: native frame #%d, size=%zu, format=%d", sNativeFrameCount, frame ? frame->data_bytes : 0, frame ? frame->frame_format : -1);
+	}
+
 	// Reset the disconnected flag since we're receiving frames
 	if (preview->mDeviceDisconnected) {
 		preview->mDeviceDisconnected = false;
@@ -592,14 +609,19 @@ void *UVCPreview::preview_thread_func(void *vptr_args) {
 	int result;
 
 	ENTER();
+	AMPA_LOG("preview_thread: started");
 	UVCPreview *preview = reinterpret_cast<UVCPreview *>(vptr_args);
 	if (LIKELY(preview)) {
 		uvc_stream_ctrl_t ctrl;
 		result = preview->prepare_preview(&ctrl);
 		if (LIKELY(!result)) {
+			AMPA_LOG("preview_thread: prepare_preview OK, starting do_preview");
 			preview->do_preview(&ctrl);
+		} else {
+			AMPA_ERR("preview_thread: prepare_preview FAILED err=%d", result);
 		}
 	}
+	AMPA_LOG("preview_thread: exiting");
 	PRE_EXIT();
 	pthread_exit(NULL);
 }
@@ -608,27 +630,29 @@ int UVCPreview::prepare_preview(uvc_stream_ctrl_t *ctrl) {
 	uvc_error_t result;
 
 	ENTER();
+	AMPA_LOG("prepare_preview: requesting %dx%d mode=%s handle=%p", requestWidth, requestHeight, (!requestMode ? "YUYV" : "MJPEG"), mDeviceHandle);
 	result = uvc_get_stream_ctrl_format_size_fps(mDeviceHandle, ctrl,
 		!requestMode ? UVC_FRAME_FORMAT_YUYV : UVC_FRAME_FORMAT_MJPEG,
 		requestWidth, requestHeight, requestMinFps, requestMaxFps
 	);
 	if (LIKELY(!result)) {
-#if LOCAL_DEBUG
-		uvc_print_stream_ctrl(ctrl, stderr);
-#endif
 		uvc_frame_desc_t *frame_desc;
 		result = uvc_get_frame_desc(mDeviceHandle, ctrl, &frame_desc);
 		if (LIKELY(!result)) {
 			frameWidth = frame_desc->wWidth;
 			frameHeight = frame_desc->wHeight;
-			LOGI("frameSize=(%d,%d)@%s", frameWidth, frameHeight, (!requestMode ? "YUYV" : "MJPEG"));
+			AMPA_LOG("prepare_preview: negotiated %dx%d@%s", frameWidth, frameHeight, (!requestMode ? "YUYV" : "MJPEG"));
 			pthread_mutex_lock(&preview_mutex);
 			if (LIKELY(mPreviewWindow)) {
 				ANativeWindow_setBuffersGeometry(mPreviewWindow,
 					frameWidth, frameHeight - (frameHeight % 8), previewFormat);
+				AMPA_LOG("prepare_preview: buffer geometry set, window=%p", mPreviewWindow);
+			} else {
+				AMPA_ERR("prepare_preview: mPreviewWindow is NULL after negotiation!");
 			}
 			pthread_mutex_unlock(&preview_mutex);
 		} else {
+			AMPA_ERR("prepare_preview: uvc_get_frame_desc failed err=%d", result);
 			frameWidth = requestWidth;
 			frameHeight = requestHeight;
 		}
@@ -636,7 +660,7 @@ int UVCPreview::prepare_preview(uvc_stream_ctrl_t *ctrl) {
 		frameBytes = frameWidth * frameHeight * (!requestMode ? 2 : 4);
 		previewBytes = frameWidth * frameHeight * PREVIEW_PIXEL_BYTES;
 	} else {
-		LOGE("could not negotiate with camera:err=%d", result);
+		AMPA_ERR("prepare_preview: negotiate FAILED err=%d (handle=%p)", result, mDeviceHandle);
 	}
 	RETURN(result, int);
 }
@@ -646,10 +670,25 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
 
 	uvc_frame_t *frame = NULL;
 	uvc_frame_t *frame_mjpeg = NULL;
-	uvc_error_t result = uvc_start_streaming_bandwidth(
-		mDeviceHandle, ctrl, uvc_preview_frame_callback, (void *)this, requestBandwidth, 0);
+	sNativeFrameCount = 0;
+	AMPA_LOG("do_preview: starting USB streaming, handle=%p, bandwidth=%.2f", mDeviceHandle, requestBandwidth);
+	uvc_error_t result = UVC_ERROR_OTHER;
+	int maxRetries = 6;
+	for (int retry = 0; retry < maxRetries && isRunning(); retry++) {
+		result = uvc_start_streaming_bandwidth(
+			mDeviceHandle, ctrl, uvc_preview_frame_callback, (void *)this, requestBandwidth, 0);
+		if (LIKELY(!result)) {
+			if (retry > 0) {
+				AMPA_LOG("do_preview: streaming succeeded on retry %d/%d", retry + 1, maxRetries);
+			}
+			break;
+		}
+		AMPA_ERR("do_preview: uvc_start_streaming FAILED err=%d, retry %d/%d, isRunning=%d", result, retry + 1, maxRetries, isRunning());
+		usleep(500000); // 500ms wait for USB driver to release isochronous bandwidth
+	}
 
 	if (LIKELY(!result)) {
+		AMPA_LOG("do_preview: USB streaming started successfully");
 		clearPreviewFrame();
 		pthread_create(&capture_thread, NULL, capture_thread_func, (void *)this);
 
@@ -691,10 +730,12 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
 		LOGI("Streaming finished");
 #endif
 	} else {
+		AMPA_ERR("do_preview: uvc_start_streaming_bandwidth FAILED err=%d", result);
 		uvc_perror(result, "failed start_streaming");
 		onDeviceDisconnected();
 	}
 
+	AMPA_LOG("do_preview: exiting");
 	EXIT();
 }
 

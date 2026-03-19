@@ -99,15 +99,24 @@ class CameraUvc extends CameraViewImpl {
             = new UVCCameraHandler.CameraCallback() {
         @Override
         public void onOpen(){
+            Log.d("AMPA", "callback onOpen: camera opened, refreshing surface");
+            if (mUVCCameraView != null && mUVCCameraView.getSurfaceTexture() != null) {
+                mPreviewSurface = new Surface(mUVCCameraView.getSurfaceTexture());
+                Log.d("AMPA", "callback onOpen: recreated preview surface");
+            } else {
+                Log.d("AMPA", "callback onOpen: could not recreate surface, view=" + (mUVCCameraView != null) + " texture=" + (mUVCCameraView != null ? mUVCCameraView.getSurfaceTexture() != null : false));
+            }
             mCallback.onCameraOpened();
             startCaptureSession();
         }
         @Override
         public void onClose(){
+            Log.d("AMPA", "callback onClose: camera closed");
             mCallback.onCameraClosed();
         }
         @Override
         public void onStartPreview(){
+            Log.d("AMPA", "callback onStartPreview: preview started");
             // some USB camera will not return onPictureTaken and onVideoRecorded by uncomment some of bellow, test them by your own
             // updateAutoFocus();
             // updateFlash();
@@ -198,6 +207,7 @@ class CameraUvc extends CameraViewImpl {
 
     CameraUvc(Callback callback, PreviewImpl preview, Context context) {
         super(callback, preview);
+        Log.d("AMPA", "CameraUvc: constructor called");
         mUVCCameraView = (UVCCameraTextureView) preview.getView();
         mUVCCameraView.setAspectRatio(PREVIEW_WIDTH / (float)PREVIEW_HEIGHT);
 
@@ -213,17 +223,13 @@ class CameraUvc extends CameraViewImpl {
         mPreview.setCallback(new PreviewImpl.Callback() {
             @Override
             public void onSurfaceChanged(Surface  surface) {
-                // if (mCameraHandler.isPreviewing()) {
-                //     if (mUVCCameraView != null)
-                //         mUVCCameraView.onPause();
-                //     stop();
-                //     // stopCaptureSession();
-                // }
+                Log.d("AMPA", "onSurfaceChanged: surface=" + (surface != null ? "exists" : "null") + " isCameraOpened=" + isCameraOpened());
                 if (!isCameraOpened() || surface == null) {
+                    Log.d("AMPA", "onSurfaceChanged: SKIPPED");
                     return;
                 }
+                Log.d("AMPA", "onSurfaceChanged: starting preview");
                 mCameraHandler.startPreview(surface);
-//                startCaptureSession();
             }
 
             @Override
@@ -241,11 +247,12 @@ class CameraUvc extends CameraViewImpl {
     private UsbDevice getFirstCameraDevice() {
         List<DeviceFilter> filter = DeviceFilter.getDeviceFilters(mContext.getCurrentActivity(), com.serenegiant.uvccamera.R.xml.device_filter);
         List<UsbDevice> cameraList =  mUSBMonitor.getDeviceList(filter.get(0));
+        Log.d("AMPA", "getFirstCameraDevice: found " + cameraList.size() + " camera(s)");
         if(cameraList.isEmpty()) {
-//            Toast.makeText(mContext.getCurrentActivity(), "No Cameras Found", Toast.LENGTH_SHORT).show();
             return null;
         }
         UsbDevice firstCameraDevice = cameraList.get(0);
+        Log.d("AMPA", "getFirstCameraDevice: " + firstCameraDevice.getDeviceName() + " class=" + firstCameraDevice.getDeviceClass());
         return firstCameraDevice;
     }
 
@@ -258,30 +265,30 @@ class CameraUvc extends CameraViewImpl {
     private final OnDeviceConnectListener mOnDeviceConnectListener = new OnDeviceConnectListener() {
         @Override
         public void onAttach(final UsbDevice device) {
-            // Toast.makeText(mContext.getCurrentActivity(), "USB_DEVICE_ATACHED", Toast.LENGTH_SHORT).show();
-//            if(mCameraHandler == null) {
-//                mCameraHandler = UVCCameraHandler.createHandler(mContext.getCurrentActivity(), mUVCCameraView,
-//                        USE_SURFACE_ENCODER ? 0 : 1, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_MODE);
-//                mCameraHandler.addCallback(mCameraDeviceCallback);
-//            }
+            Log.d("AMPA", "onAttach: device=" + device.getDeviceName() + " isOpened=" + mCameraHandler.isOpened());
             if (!mCameraHandler.isOpened()) {
-//              CameraDialog.showDialog(mContext.getCurrentActivity(), mUSBMonitor);
-                UsbDevice camera =  getFirstCameraDevice();
+                UsbDevice camera = getFirstCameraDevice();
+                Log.d("AMPA", "onAttach: requesting permission for camera=" + (camera != null ? camera.getDeviceName() : "null"));
                 requestCameraPermission(camera);
             }
         }
 
         @Override
         public void onConnect(final UsbDevice device, final UsbControlBlock ctrlBlock, final boolean createNew) {
-            // Toast.makeText(mContext.getCurrentActivity(), "onConnect", Toast.LENGTH_SHORT).show();
+            Log.d("AMPA", "onConnect: device=" + device.getDeviceName() + " class=" + device.getDeviceClass() + " hasCtrlBlock=" + (mCtrlBlock != null));
+            // Skip if we already have a connection — prevents double-connect from
+            // queueing two MSG_OPENs (second one destroys the first's preview)
+            if (mCtrlBlock != null) {
+                Log.d("AMPA", "onConnect: already connected, skipping duplicate");
+                return;
+            }
             mCtrlBlock = ctrlBlock;
             mCameraHandler.open(mCtrlBlock);
         }
 
         @Override
         public void onDisconnect(final UsbDevice device, final UsbControlBlock ctrlBlock) {
-//            Toast.makeText(mContext.getCurrentActivity(), "onDisconnect", Toast.LENGTH_SHORT).show();
-            Log.d("AMPA", "OnDisconnect");
+            Log.d("AMPA", "onDisconnect: device=" + device.getDeviceName());
             if (mCameraHandler != null) {
                 Handler handler = new Handler(Looper.getMainLooper());
                 handler.postDelayed(new Runnable() {
@@ -293,20 +300,23 @@ class CameraUvc extends CameraViewImpl {
                             }
                             mCameraHandler.close();
                         }
-//                        mCameraHandler.release();
-//                        mCameraHandler = null;
                     }
                 }, 0);
             }
+            mCtrlBlock = null;
         }
 
         @Override
         public void onDettach(final UsbDevice device) {
-//            Toast.makeText(mContext.getCurrentActivity(), "USB_DEVICE_DETACHED", Toast.LENGTH_SHORT).show();
+            Log.d("AMPA", "onDettach: device=" + device.getDeviceName());
+            // Clear stale control block so start() doesn't reuse it
+            mCtrlBlock = null;
         }
 
         @Override
-        public void onCancel(final UsbDevice device) {}
+        public void onCancel(final UsbDevice device) {
+            Log.d("AMPA", "onCancel: device=" + device.getDeviceName());
+        }
     };
 
 
@@ -320,11 +330,15 @@ class CameraUvc extends CameraViewImpl {
         // mInitialRatio = null;
 
         if (mIsNew) {
+            Log.d("AMPA", "start: registering USBMonitor (first time)");
             mUSBMonitor.register();
             mIsNew = false;
         }
         if (mCtrlBlock != null) {
+            Log.d("AMPA", "start: opening camera with existing ctrlBlock");
             mCameraHandler.open(mCtrlBlock);
+        } else {
+            Log.d("AMPA", "start: no ctrlBlock yet");
         }
         // if (mUVCCameraView != null)
         //     mUVCCameraView.onResume();
@@ -571,12 +585,16 @@ class CameraUvc extends CameraViewImpl {
      */
     void startCaptureSession() {
         if (!isCameraOpened()) {
+            Log.d("AMPA", "startCaptureSession: SKIPPED - camera not opened");
             return;
         }
-        mCameraHandler.startPreview(getPreviewSurface());
+        Surface surface = getPreviewSurface();
+        Log.d("AMPA", "startCaptureSession: starting preview, surface=" + (surface != null ? "exists" : "null"));
+        mCameraHandler.startPreview(surface);
     }
 
     void stopCaptureSession() {
+        Log.d("AMPA", "stopCaptureSession: stopping preview");
         mCameraHandler.stopPreview();
     }
 
