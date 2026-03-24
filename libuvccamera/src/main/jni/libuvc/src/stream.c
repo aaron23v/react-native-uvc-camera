@@ -632,20 +632,21 @@ static void _uvc_swap_buffers(uvc_stream_handle_t *strmh) {
 static void _uvc_delete_transfer(struct libusb_transfer *transfer) {
 	ENTER();
 
-//	MARK("");
 	uvc_stream_handle_t *strmh = transfer->user_data;
-	if (UNLIKELY(!strmh)) EXIT();		// XXX
+	if (UNLIKELY(!strmh)) EXIT();
 	int i;
 
-	pthread_mutex_lock(&strmh->cb_mutex);	// XXX crash while calling uvc_stop_streaming
+	int lock_ret = pthread_mutex_trylock(&strmh->cb_mutex);
+	if (UNLIKELY(lock_ret != 0)) {
+		UVC_DEBUG("_uvc_delete_transfer: mutex lock failed (ret=%d), stream likely closed", lock_ret);
+		EXIT();
+	}
 	{
-		// Mark transfer as deleted.
 		for (i = 0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
 			if (strmh->transfers[i] == transfer) {
-				libusb_cancel_transfer(strmh->transfers[i]);	// XXX 20141112追加
+				libusb_cancel_transfer(strmh->transfers[i]);
 				UVC_DEBUG("Freeing transfer %d (%p)", i, transfer);
 				free(transfer->buffer);
-				// libusb_free_transfer(transfer);
 				strmh->transfers[i] = NULL;
 				break;
 			}
@@ -1836,29 +1837,43 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
 			}
 		}
 
-		/* Wait for transfers to complete/cancel */
-		for (; 1 ;) {
-			for (i = 0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
-				if (strmh->transfers[i] != NULL)
+		/* Wait for transfers to complete/cancel with retry */
+		{
+			int max_attempts = 5;
+			int attempt = 0;
+			for (; attempt < max_attempts ;) {
+				for (i = 0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
+					if (strmh->transfers[i] != NULL)
+						break;
+				}
+				if (i == LIBUVC_NUM_TRANSFER_BUFS)
 					break;
-			}
-			if (i == LIBUVC_NUM_TRANSFER_BUFS)
-				break;
-			
-			 ts.tv_sec = 0;
-             ts.tv_nsec = 0;
+
+				ts.tv_sec = 0;
+				ts.tv_nsec = 0;
 
 #if _POSIX_TIMERS > 0
-             clock_gettime(CLOCK_REALTIME, &ts);
+				clock_gettime(CLOCK_REALTIME, &ts);
 #else
-             gettimeofday(&tv, NULL);
-             ts.tv_sec = tv.tv_sec;
-             ts.tv_nsec = tv.tv_usec * 1000;
+				gettimeofday(&tv, NULL);
+				ts.tv_sec = tv.tv_sec;
+				ts.tv_nsec = tv.tv_usec * 1000;
 #endif
-             ts.tv_sec += 1;
-             ts.tv_nsec += 0;
-			if (pthread_cond_timedwait(&strmh->cb_cond, &strmh->cb_mutex, &ts) == ETIMEDOUT) {
-                break;
+				ts.tv_sec += 1;
+				ts.tv_nsec += 0;
+				if (pthread_cond_timedwait(&strmh->cb_cond, &strmh->cb_mutex, &ts) == ETIMEDOUT) {
+					attempt++;
+					UVC_DEBUG("uvc_stream_stop: timeout waiting for transfers, attempt %d/%d", attempt, max_attempts);
+				}
+			}
+			if (attempt >= max_attempts) {
+				UVC_DEBUG("uvc_stream_stop: forcibly clearing %d remaining transfers after timeout", max_attempts);
+				for (i = 0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
+					if (strmh->transfers[i] != NULL) {
+						free(strmh->transfers[i]->buffer);
+						strmh->transfers[i] = NULL;
+					}
+				}
 			}
 		}
 		// Kick the user thread awake
