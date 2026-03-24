@@ -1,6 +1,6 @@
 {
   "name": "react-native-uvc-camera",
-  "version": "3.0.5",
+  "version": "3.0.6",
   "description": "A USB video class Camera component for React Native",
   "main": "src/index.js",
   "scripts": {

@@ -258,6 +258,8 @@ struct uvc_stream_handle {
 
   /** if true, stream is running (streaming video to host) */
   uint8_t running;
+  /** if true, stream is being closed — callbacks must not touch cb_mutex */
+  volatile uint8_t closing;
   /** Current control block */
   struct uvc_stream_ctrl cur_ctrl;
 

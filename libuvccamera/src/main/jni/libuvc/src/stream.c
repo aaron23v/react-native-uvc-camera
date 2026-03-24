@@ -636,11 +636,13 @@ static void _uvc_delete_transfer(struct libusb_transfer *transfer) {
 	if (UNLIKELY(!strmh)) EXIT();
 	int i;
 
-	int lock_ret = pthread_mutex_trylock(&strmh->cb_mutex);
-	if (UNLIKELY(lock_ret != 0)) {
-		UVC_DEBUG("_uvc_delete_transfer: mutex lock failed (ret=%d), stream likely closed", lock_ret);
+	if (UNLIKELY(strmh->closing)) {
+		UVC_DEBUG("_uvc_delete_transfer: stream closing, skipping mutex access");
+		free(transfer->buffer);
 		EXIT();
 	}
+
+	pthread_mutex_lock(&strmh->cb_mutex);
 	{
 		for (i = 0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
 			if (strmh->transfers[i] == transfer) {
@@ -1921,6 +1923,9 @@ void uvc_stream_close(uvc_stream_handle_t *strmh) {
 		free(strmh->holdbuf);
 		strmh->holdbuf = NULL;
 	}
+
+	strmh->closing = 1;
+	__sync_synchronize();
 
 	pthread_cond_destroy(&strmh->cb_cond);
 	pthread_mutex_destroy(&strmh->cb_mutex);
