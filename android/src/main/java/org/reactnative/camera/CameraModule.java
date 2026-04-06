@@ -59,6 +59,16 @@ public class CameraModule extends ReactContextBaseJavaModule {
     mScopedContext = new ScopedContext(reactContext);
   }
 
+  @Override
+  public void initialize() {
+    super.initialize();
+    if (!org.opencv.android.OpenCVLoader.initLocal()) {
+      android.util.Log.e(TAG, "OpenCV initialization failed");
+    } else {
+      android.util.Log.d(TAG, "OpenCV initialized successfully");
+    }
+  }
+
   public ScopedContext getScopedContext() {
     return mScopedContext;
   }
@@ -273,5 +283,33 @@ public class CameraModule extends ReactContextBaseJavaModule {
               }
           }
       });
+  }
+
+  @ReactMethod
+  public void startSlipDetection(final int viewTag) {
+    final ReactApplicationContext context = getReactApplicationContext();
+    UIManagerModule uiManager = context.getNativeModule(UIManagerModule.class);
+    uiManager.addUIBlock(nativeViewHierarchyManager -> {
+      try {
+        final RNCameraView cameraView = (RNCameraView) nativeViewHierarchyManager.resolveView(viewTag);
+        cameraView.startSlipDetection();
+      } catch (Exception e) {
+        android.util.Log.w("CameraModule", "startSlipDetection error: " + e.getMessage());
+      }
+    });
+  }
+
+  @ReactMethod
+  public void stopSlipDetection(final int viewTag) {
+    final ReactApplicationContext context = getReactApplicationContext();
+    UIManagerModule uiManager = context.getNativeModule(UIManagerModule.class);
+    uiManager.addUIBlock(nativeViewHierarchyManager -> {
+      try {
+        final RNCameraView cameraView = (RNCameraView) nativeViewHierarchyManager.resolveView(viewTag);
+        cameraView.stopSlipDetection();
+      } catch (Exception e) {
+        android.util.Log.w("CameraModule", "stopSlipDetection error: " + e.getMessage());
+      }
+    });
   }
 }

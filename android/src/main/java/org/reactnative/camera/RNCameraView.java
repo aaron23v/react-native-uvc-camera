@@ -35,6 +35,9 @@ import com.google.zxing.DecodeHintType;
 import com.google.zxing.MultiFormatReader;
 import com.google.zxing.Result;
 import org.reactnative.barcodedetector.RNBarcodeDetector;
+import org.reactnative.camera.slip.SlipDetector;
+import org.reactnative.camera.slip.SlipOverlayRenderer;
+import org.reactnative.camera.slip.SlipResult;
 import org.reactnative.camera.tasks.*;
 import org.reactnative.camera.utils.ImageDimensions;
 import org.reactnative.camera.utils.RNFileUtils;
@@ -65,6 +68,14 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   public volatile boolean faceDetectorTaskLock = false;
   public volatile boolean googleBarcodeDetectorTaskLock = false;
   public volatile boolean textRecognizerTaskLock = false;
+
+  // Slip detection
+  private boolean mShouldDetectSlip = false;
+  private volatile boolean slipDetectorProcessing = false;
+  private SlipDetector mSlipDetector;
+  private SlipOverlayRenderer mSlipOverlayRenderer;
+  private long lastSlipEmitTime = 0;
+  private static final long SLIP_EMIT_THROTTLE_MS = 200;
 
   // Scanning-related properties
   private MultiFormatReader mMultiFormatReader;
@@ -182,6 +193,36 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
                                       delegate.onTextRecognizerTaskCompleted();
                                     }
                                   });
+        }
+
+        if (mShouldDetectSlip && mSlipDetector != null && mSlipDetector.isActive() && !slipDetectorProcessing) {
+          slipDetectorProcessing = true;
+          new Thread(() -> {
+            try {
+              Bitmap mutableBitmap = data.isMutable() ? data : data.copy(data.getConfig(), true);
+              SlipResult result = mSlipDetector.processFrame(mutableBitmap);
+              mSlipOverlayRenderer.draw(mutableBitmap, result, mSlipDetector.getOverlayCounter());
+              mSlipDetector.decrementOverlayCounter();
+
+              long now = System.currentTimeMillis();
+              if (now - lastSlipEmitTime >= SLIP_EMIT_THROTTLE_MS) {
+                lastSlipEmitTime = now;
+                post(() -> RNCameraViewHelper.emitSlipUpdateEvent(
+                    RNCameraView.this,
+                    result.distance,
+                    result.scale,
+                    result.isTracking,
+                    mSlipDetector.getDistanceThreshold(),
+                    result.didReset,
+                    result.resetReason
+                ));
+              }
+            } catch (Exception e) {
+              Log.w("RNCameraView", "Slip detection error: " + e.getMessage());
+            } finally {
+              slipDetectorProcessing = false;
+            }
+          }).start();
         }
       }
     });
@@ -448,6 +489,26 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     }
     this.mShouldRecognizeText = shouldRecognizeText;
     setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes || mShouldRecognizeText);
+  }
+
+  public void setSlipDetectorEnabled(boolean enabled) {
+    mShouldDetectSlip = enabled;
+    if (enabled) {
+      if (mSlipDetector == null) mSlipDetector = new SlipDetector();
+      if (mSlipOverlayRenderer == null) mSlipOverlayRenderer = new SlipOverlayRenderer();
+    }
+  }
+
+  public void startSlipDetection() {
+    if (mSlipDetector == null) mSlipDetector = new SlipDetector();
+    if (mSlipOverlayRenderer == null) mSlipOverlayRenderer = new SlipOverlayRenderer();
+    mShouldDetectSlip = true;
+    mSlipDetector.start();
+  }
+
+  public void stopSlipDetection() {
+    mShouldDetectSlip = false;
+    if (mSlipDetector != null) mSlipDetector.stop();
   }
 
   @Override

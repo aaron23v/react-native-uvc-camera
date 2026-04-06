@@ -272,6 +272,14 @@ export default class Camera extends React.Component<PropsType, StateType> {
     CameraManager.stopRecording(this._cameraHandle);
   }
 
+  async startSlipDetection() {
+    return await CameraManager.startSlipDetection(this._cameraHandle);
+  }
+
+  async stopSlipDetection() {
+    return await CameraManager.stopSlipDetection(this._cameraHandle);
+  }
+
   _onMountError = ({ nativeEvent }: EventCallbackArgumentsType) => {
     if (this.props.onMountError) {
       this.props.onMountError(nativeEvent);
@@ -281,6 +289,12 @@ export default class Camera extends React.Component<PropsType, StateType> {
   _onCameraReady = () => {
     if (this.props.onCameraReady) {
       this.props.onCameraReady();
+    }
+  };
+
+  _onSlipUpdate = ({ nativeEvent }) => {
+    if (this.props.onSlipUpdate) {
+      this.props.onSlipUpdate(nativeEvent);
     }
   };
 
@@ -358,6 +372,7 @@ export default class Camera extends React.Component<PropsType, StateType> {
           onBarCodeRead={this._onObjectDetected(this.props.onBarCodeRead)}
           onFacesDetected={this._onObjectDetected(this.props.onFacesDetected)}
           onTextRecognized={this._onObjectDetected(this.props.onTextRecognized)}
+          onSlipUpdate={this._onSlipUpdate}
         >
           {this.renderChildren()}
         </RNCamera>
@@ -386,6 +401,10 @@ export default class Camera extends React.Component<PropsType, StateType> {
 
     if (props.onTextRecognized) {
       newProps.textRecognizerEnabled = true;
+    }
+
+    if (props.onSlipUpdate) {
+      newProps.slipDetectorEnabled = true;
     }
 
     if (Platform.OS === 'ios') {
@@ -418,6 +437,7 @@ const RNCamera = requireNativeComponent('UvcCamera', Camera, {
     googleVisionBarcodeDetectorEnabled: true,
     faceDetectorEnabled: true,
     textRecognizerEnabled: true,
+    slipDetectorEnabled: true,
     importantForAccessibility: true,
     onBarCodeRead: true,
     onGoogleVisionBarcodesDetected: true,

@@ -18,6 +18,7 @@ import com.google.android.gms.vision.barcode.Barcode;
 import com.google.android.gms.vision.face.Face;
 import com.google.zxing.Result;
 import org.reactnative.camera.events.*;
+import org.reactnative.camera.events.SlipUpdateEvent;
 import org.reactnative.camera.utils.ImageDimensions;
 import org.reactnative.barcodedetector.RNBarcodeDetector;
 import org.reactnative.facedetector.RNFaceDetector;
@@ -252,6 +253,17 @@ public class RNCameraViewHelper {
         scaleY
     );
 
+    ReactContext reactContext = (ReactContext) view.getContext();
+    reactContext.getNativeModule(UIManagerModule.class).getEventDispatcher().dispatchEvent(event);
+  }
+
+  // Slip detection event
+
+  public static void emitSlipUpdateEvent(ViewGroup view, int distance, double scale,
+                                          boolean isTracking, int threshold,
+                                          boolean didReset, String resetReason) {
+    SlipUpdateEvent event = SlipUpdateEvent.obtain(
+        view.getId(), distance, scale, isTracking, threshold, didReset, resetReason);
     ReactContext reactContext = (ReactContext) view.getContext();
     reactContext.getNativeModule(UIManagerModule.class).getEventDispatcher().dispatchEvent(event);
   }
