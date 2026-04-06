@@ -320,7 +320,7 @@ struct uvc_context {
   /** List of open devices in this context */
   uvc_device_handle_t *open_devices;
   pthread_t handler_thread;
-  uint8_t kill_handler_thread;
+  volatile uint8_t kill_handler_thread;
 };
 
 uvc_error_t uvc_query_stream_ctrl(

@@ -192,8 +192,13 @@ void uvc_exit(uvc_context_t *ctx) {
 		uvc_close(devh);
 	}
 
-	if (ctx->own_usb_ctx)
+	if (ctx->own_usb_ctx) {
+		if (!ctx->kill_handler_thread && ctx->handler_thread) {
+			ctx->kill_handler_thread = 1;
+			pthread_join(ctx->handler_thread, NULL);
+		}
 		libusb_exit(ctx->usb_ctx);
+	}
 
 	free(ctx);
 }

@@ -579,6 +579,9 @@ public final class USBMonitor {
 						updatePermission(device, false);
 						mUsbManager.requestPermission(device, mPermissionIntent);
 						return;
+					} catch (IllegalStateException e) {
+						Log.w(TAG, "processConnect: device unavailable, skipping: " + e.getMessage());
+						return;
 					}
 					mCtrlBlocks.put(device, ctrlBlock);
 					createNew = true;
@@ -996,6 +999,9 @@ public final class USBMonitor {
 			mWeakMonitor = new WeakReference<USBMonitor>(monitor);
 			mWeakDevice = new WeakReference<UsbDevice>(device);
 			mConnection = monitor.mUsbManager.openDevice(device);
+			if (mConnection == null) {
+				throw new IllegalStateException("could not open device " + device.getDeviceName() + " - device may already be removed or have no permission");
+			}
 			mInfo = updateDeviceInfo(monitor.mUsbManager, device, null);
 			final String name = device.getDeviceName();
 			final String[] v = !TextUtils.isEmpty(name) ? name.split("/") : null;
