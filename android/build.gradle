@@ -79,5 +79,4 @@ dependencies {
 
   implementation project(':libuvccamera')
   implementation project(':usbCameraCommon')
-  implementation 'org.opencv:opencv:4.9.0'
 }
