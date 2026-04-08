@@ -638,7 +638,10 @@ static void _uvc_delete_transfer(struct libusb_transfer *transfer) {
 
 	if (UNLIKELY(strmh->closing)) {
 		UVC_DEBUG("_uvc_delete_transfer: stream closing, skipping mutex access");
-		free(transfer->buffer);
+		if (transfer->buffer) {
+			free(transfer->buffer);
+			transfer->buffer = NULL;
+		}
 		EXIT();
 	}
 
@@ -648,7 +651,10 @@ static void _uvc_delete_transfer(struct libusb_transfer *transfer) {
 			if (strmh->transfers[i] == transfer) {
 				libusb_cancel_transfer(strmh->transfers[i]);
 				UVC_DEBUG("Freeing transfer %d (%p)", i, transfer);
-				free(transfer->buffer);
+				if (transfer->buffer) {
+					free(transfer->buffer);
+					transfer->buffer = NULL;
+				}
 				strmh->transfers[i] = NULL;
 				break;
 			}
@@ -1832,9 +1838,10 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
 					strmh->transfers[i] = NULL; */
 				}
 				if (res == LIBUSB_ERROR_NOT_FOUND && strmh->transfers[i] != NULL) {
-                    free(strmh->transfers[i]->buffer);
-                    // libusb_free_transfer(strmh->transfers[i]);
-                    strmh->transfers[i] = NULL;
+                    // NOT_FOUND: transfer already completed in libusb, callback
+                    // will fire and handle cleanup via _uvc_delete_transfer.
+                    // Do NOT free here — causes double-free SIGSEGV (TMS-APP-7K).
+                    UVC_DEBUG("transfer %d: cancel returned NOT_FOUND, deferring to callback", i);
                 }
 			}
 		}
@@ -1872,7 +1879,10 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
 				UVC_DEBUG("uvc_stream_stop: forcibly clearing %d remaining transfers after timeout", max_attempts);
 				for (i = 0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
 					if (strmh->transfers[i] != NULL) {
-						free(strmh->transfers[i]->buffer);
+						if (strmh->transfers[i]->buffer) {
+							free(strmh->transfers[i]->buffer);
+							strmh->transfers[i]->buffer = NULL;
+						}
 						strmh->transfers[i] = NULL;
 					}
 				}
