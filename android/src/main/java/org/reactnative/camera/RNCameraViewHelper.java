@@ -261,9 +261,12 @@ public class RNCameraViewHelper {
 
   public static void emitSlipUpdateEvent(ViewGroup view, int distance, double scale,
                                           boolean isTracking, int threshold,
-                                          boolean didReset, String resetReason) {
+                                          boolean didReset, String resetReason,
+                                          int liveX, int liveY, int refX, int refY,
+                                          int frameWidth, int frameHeight) {
     SlipUpdateEvent event = SlipUpdateEvent.obtain(
-        view.getId(), distance, scale, isTracking, threshold, didReset, resetReason);
+        view.getId(), distance, scale, isTracking, threshold, didReset, resetReason,
+        liveX, liveY, refX, refY, frameWidth, frameHeight);
     ReactContext reactContext = (ReactContext) view.getContext();
     reactContext.getNativeModule(UIManagerModule.class).getEventDispatcher().dispatchEvent(event);
   }

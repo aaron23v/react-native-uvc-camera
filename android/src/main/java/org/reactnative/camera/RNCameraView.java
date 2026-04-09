@@ -15,7 +15,6 @@ import androidx.core.content.ContextCompat;
 import android.util.Log;
 import android.util.SparseArray;
 import android.view.View;
-import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import com.facebook.react.bridge.*;
@@ -38,7 +37,7 @@ import com.google.zxing.Result;
 import org.reactnative.barcodedetector.RNBarcodeDetector;
 import org.reactnative.camera.slip.SlipDetector;
 import org.reactnative.camera.slip.SlipOverlayRenderer;
-import org.reactnative.camera.slip.SlipOverlayView;
+// SlipOverlayView removed — overlay rendering moved to React Native side
 import org.reactnative.camera.slip.SlipResult;
 import org.reactnative.camera.tasks.*;
 import org.reactnative.camera.utils.ImageDimensions;
@@ -76,7 +75,6 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   private volatile boolean slipDetectorProcessing = false;
   private SlipDetector mSlipDetector;
   private SlipOverlayRenderer mSlipOverlayRenderer;
-  private SlipOverlayView mSlipOverlayView;
   private long lastSlipEmitTime = 0;
   private static final long SLIP_EMIT_THROTTLE_MS = 200;
   private int slipFrameLogCounter = 0;
@@ -213,21 +211,16 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
           final int frameH = height;
           new Thread(() -> {
             try {
-              Bitmap mutableBitmap = data.isMutable() ? data : data.copy(data.getConfig(), true);
-              SlipResult result = mSlipDetector.processFrame(mutableBitmap);
-              int currentOverlay = mSlipDetector.getOverlayCounter();
-              mSlipDetector.decrementOverlayCounter();
-
-              // Update the transparent overlay view on UI thread
-              if (mSlipOverlayView != null) {
-                mSlipOverlayView.updateResult(result, currentOverlay, frameW, frameH);
-              }
+              SlipResult result = mSlipDetector.processFrame(data);
 
               long now = System.currentTimeMillis();
               if (now - lastSlipEmitTime >= SLIP_EMIT_THROTTLE_MS) {
                 lastSlipEmitTime = now;
                 Log.d("SlipDebug", "Emitting onSlipUpdate: dist=" + result.distance
-                    + " scale=" + result.scale + " tracking=" + result.isTracking);
+                    + " scale=" + result.scale + " tracking=" + result.isTracking
+                    + " live=(" + result.liveX + "," + result.liveY + ")"
+                    + " ref=(" + result.refX + "," + result.refY + ")"
+                    + " frame=" + frameW + "x" + frameH);
                 post(() -> RNCameraViewHelper.emitSlipUpdateEvent(
                     RNCameraView.this,
                     result.distance,
@@ -235,7 +228,13 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
                     result.isTracking,
                     mSlipDetector.getDistanceThreshold(),
                     result.didReset,
-                    result.resetReason
+                    result.resetReason,
+                    result.liveX,
+                    result.liveY,
+                    result.refX,
+                    result.refY,
+                    frameW,
+                    frameH
                 ));
               }
             } catch (Exception e) {
@@ -524,13 +523,6 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   public void startSlipDetection() {
     Log.d("SlipDebug", "startSlipDetection called");
     if (mSlipDetector == null) mSlipDetector = new SlipDetector();
-    if (mSlipOverlayRenderer == null) mSlipOverlayRenderer = new SlipOverlayRenderer();
-    if (mSlipOverlayView == null) {
-      mSlipOverlayView = new SlipOverlayView(getContext());
-      addView(mSlipOverlayView, new FrameLayout.LayoutParams(
-          FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-      Log.d("SlipDebug", "SlipOverlayView added to RNCameraView");
-    }
     mShouldDetectSlip = true;
     mSlipDetector.start();
     Log.d("SlipDebug", "SlipDetector started. active=" + mSlipDetector.isActive());
@@ -540,11 +532,6 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     Log.d("SlipDebug", "stopSlipDetection called");
     mShouldDetectSlip = false;
     if (mSlipDetector != null) mSlipDetector.stop();
-    if (mSlipOverlayView != null) {
-      removeView(mSlipOverlayView);
-      mSlipOverlayView = null;
-      Log.d("SlipDebug", "SlipOverlayView removed");
-    }
   }
 
   @Override

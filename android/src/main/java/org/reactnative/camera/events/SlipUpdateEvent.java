@@ -20,22 +20,33 @@ public class SlipUpdateEvent extends Event<SlipUpdateEvent> {
     private int mThreshold;
     private boolean mDidReset;
     private String mResetReason;
+    private int mLiveX;
+    private int mLiveY;
+    private int mRefX;
+    private int mRefY;
+    private int mFrameWidth;
+    private int mFrameHeight;
 
     private SlipUpdateEvent() {}
 
     public static SlipUpdateEvent obtain(int viewTag, int distance, double scale,
                                           boolean isTracking, int threshold,
-                                          boolean didReset, String resetReason) {
+                                          boolean didReset, String resetReason,
+                                          int liveX, int liveY, int refX, int refY,
+                                          int frameWidth, int frameHeight) {
         SlipUpdateEvent event = EVENTS_POOL.acquire();
         if (event == null) {
             event = new SlipUpdateEvent();
         }
-        event.init(viewTag, distance, scale, isTracking, threshold, didReset, resetReason);
+        event.init(viewTag, distance, scale, isTracking, threshold, didReset, resetReason,
+                   liveX, liveY, refX, refY, frameWidth, frameHeight);
         return event;
     }
 
     private void init(int viewTag, int distance, double scale, boolean isTracking,
-                      int threshold, boolean didReset, String resetReason) {
+                      int threshold, boolean didReset, String resetReason,
+                      int liveX, int liveY, int refX, int refY,
+                      int frameWidth, int frameHeight) {
         super.init(viewTag);
         mDistance = distance;
         mScale = scale;
@@ -43,6 +54,12 @@ public class SlipUpdateEvent extends Event<SlipUpdateEvent> {
         mThreshold = threshold;
         mDidReset = didReset;
         mResetReason = resetReason;
+        mLiveX = liveX;
+        mLiveY = liveY;
+        mRefX = refX;
+        mRefY = refY;
+        mFrameWidth = frameWidth;
+        mFrameHeight = frameHeight;
     }
 
     @Override
@@ -65,6 +82,12 @@ public class SlipUpdateEvent extends Event<SlipUpdateEvent> {
         if (mResetReason != null) {
             event.putString("resetReason", mResetReason);
         }
+        event.putInt("liveX", mLiveX);
+        event.putInt("liveY", mLiveY);
+        event.putInt("refX", mRefX);
+        event.putInt("refY", mRefY);
+        event.putInt("frameWidth", mFrameWidth);
+        event.putInt("frameHeight", mFrameHeight);
         return event;
     }
 }
