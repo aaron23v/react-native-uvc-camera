@@ -76,6 +76,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   private SlipOverlayRenderer mSlipOverlayRenderer;
   private long lastSlipEmitTime = 0;
   private static final long SLIP_EMIT_THROTTLE_MS = 200;
+  private int slipFrameLogCounter = 0;
 
   // Scanning-related properties
   private MultiFormatReader mMultiFormatReader;
@@ -195,6 +196,14 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
                                   });
         }
 
+        // SlipDetector gate debug
+        if (mSlipDetector != null && slipFrameLogCounter % 60 == 0) {
+          Log.d("SlipDebug", "onFramePreview gate: mShouldDetectSlip=" + mShouldDetectSlip
+              + " active=" + mSlipDetector.isActive()
+              + " processing=" + slipDetectorProcessing);
+        }
+        slipFrameLogCounter++;
+
         if (mShouldDetectSlip && mSlipDetector != null && mSlipDetector.isActive() && !slipDetectorProcessing) {
           slipDetectorProcessing = true;
           new Thread(() -> {
@@ -207,6 +216,8 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
               long now = System.currentTimeMillis();
               if (now - lastSlipEmitTime >= SLIP_EMIT_THROTTLE_MS) {
                 lastSlipEmitTime = now;
+                Log.d("SlipDebug", "Emitting onSlipUpdate: dist=" + result.distance
+                    + " scale=" + result.scale + " tracking=" + result.isTracking);
                 post(() -> RNCameraViewHelper.emitSlipUpdateEvent(
                     RNCameraView.this,
                     result.distance,
@@ -218,7 +229,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
                 ));
               }
             } catch (Exception e) {
-              Log.w("RNCameraView", "Slip detection error: " + e.getMessage());
+              Log.w("SlipDebug", "Slip detection error: " + e.getMessage(), e);
             } finally {
               slipDetectorProcessing = false;
             }
@@ -492,6 +503,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   }
 
   public void setSlipDetectorEnabled(boolean enabled) {
+    Log.d("SlipDebug", "setSlipDetectorEnabled: " + enabled);
     mShouldDetectSlip = enabled;
     if (enabled) {
       if (mSlipDetector == null) mSlipDetector = new SlipDetector();
@@ -500,13 +512,16 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   }
 
   public void startSlipDetection() {
+    Log.d("SlipDebug", "startSlipDetection called");
     if (mSlipDetector == null) mSlipDetector = new SlipDetector();
     if (mSlipOverlayRenderer == null) mSlipOverlayRenderer = new SlipOverlayRenderer();
     mShouldDetectSlip = true;
     mSlipDetector.start();
+    Log.d("SlipDebug", "SlipDetector started. active=" + mSlipDetector.isActive());
   }
 
   public void stopSlipDetection() {
+    Log.d("SlipDebug", "stopSlipDetection called");
     mShouldDetectSlip = false;
     if (mSlipDetector != null) mSlipDetector.stop();
   }

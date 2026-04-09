@@ -287,14 +287,16 @@ public class CameraModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void startSlipDetection(final int viewTag) {
+    android.util.Log.d("SlipDebug", "CameraModule.startSlipDetection called, viewTag=" + viewTag);
     final ReactApplicationContext context = getReactApplicationContext();
     UIManagerModule uiManager = context.getNativeModule(UIManagerModule.class);
     uiManager.addUIBlock(nativeViewHierarchyManager -> {
       try {
         final RNCameraView cameraView = (RNCameraView) nativeViewHierarchyManager.resolveView(viewTag);
+        android.util.Log.d("SlipDebug", "CameraModule: resolved view, calling startSlipDetection");
         cameraView.startSlipDetection();
       } catch (Exception e) {
-        android.util.Log.w("CameraModule", "startSlipDetection error: " + e.getMessage());
+        android.util.Log.w("SlipDebug", "startSlipDetection error: " + e.getMessage(), e);
       }
     });
   }
