@@ -706,7 +706,7 @@ public class SlipDetector {
             Core.multiply(curF, window, curF);
 
             double[] response = new double[1];
-            org.opencv.core.Point shift = Core.phaseCorrelate(refF, curF, window, response);
+            org.opencv.core.Point shift = Imgproc.phaseCorrelate(refF, curF, window, response);
 
             if (response[0] >= phaseMin) {
                 double scaleX = (double) frameWidth / PHASE_DS_WIDTH;
