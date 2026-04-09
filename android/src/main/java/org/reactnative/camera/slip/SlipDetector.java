@@ -13,6 +13,7 @@ import org.opencv.core.KeyPoint;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.MatOfDMatch;
+import org.opencv.core.MatOfDouble;
 import org.opencv.core.MatOfFloat;
 import org.opencv.core.MatOfInt;
 import org.opencv.core.MatOfKeyPoint;
@@ -592,10 +593,12 @@ public class SlipDetector {
                                double strongThresh, boolean trackingFeatureRich) {
         if (refPatch == null || refPatch.empty()) return;
 
-        Scalar meanScalar = new Scalar(0);
-        Scalar stdDevScalar = new Scalar(0);
-        Core.meanStdDev(refPatch, meanScalar, stdDevScalar);
-        if (stdDevScalar.val[0] < 1e-3) return;
+        MatOfDouble meanMat = new MatOfDouble();
+        MatOfDouble stdDevMat = new MatOfDouble();
+        Core.meanStdDev(refPatch, meanMat, stdDevMat);
+        double stdDev = stdDevMat.toArray().length > 0 ? stdDevMat.toArray()[0] : 0;
+        meanMat.release(); stdDevMat.release();
+        if (stdDev < 1e-3) return;
 
         Point searchCenter = prevLivePt;
         Point bestPt = templateMatchMultiScale(gray, refPatch, searchCenter);
@@ -703,7 +706,7 @@ public class SlipDetector {
             Core.multiply(curF, window, curF);
 
             double[] response = new double[1];
-            org.opencv.core.Point shift = Video.phaseCorrelate(refF, curF, window, response);
+            org.opencv.core.Point shift = Core.phaseCorrelate(refF, curF, window, response);
 
             if (response[0] >= phaseMin) {
                 double scaleX = (double) frameWidth / PHASE_DS_WIDTH;
