@@ -23,6 +23,7 @@ import org.opencv.core.Size;
 import org.opencv.core.TermCriteria;
 import org.opencv.features2d.BFMatcher;
 import org.opencv.features2d.ORB;
+import org.opencv.imgproc.CLAHE;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.video.Video;
 
@@ -32,9 +33,14 @@ import java.util.List;
 public class SlipDetector {
     private static final String TAG = "SlipDetector";
 
-    // Frame dimensions (set dynamically from first frame)
-    private int frameWidth = 0;
-    private int frameHeight = 0;
+    // Fixed processing dimensions (match Python trial_32.py FRAME_WIDTH/HEIGHT)
+    // All thresholds below are tuned for this size; never change without retuning.
+    private static final int PROC_WIDTH = 960;
+    private static final int PROC_HEIGHT = 720;
+
+    // Actual processing frame dimensions (after resize)
+    private int frameWidth = PROC_WIDTH;
+    private int frameHeight = PROC_HEIGHT;
 
     // Thresholds (from Python trial_32.py)
     private static final int DISTANCE_THRESHOLD = 260;
@@ -93,9 +99,10 @@ public class SlipDetector {
     // Optical flow
     private static final double FLOW_ERR_MAX = 12.0;
 
-    // OpenCV objects
+    // OpenCV objects (created once, reused every frame)
     private final ORB orb;
     private final BFMatcher bf;
+    private final CLAHE clahe;
 
     // Reference state
     private Mat referenceFrame;
@@ -121,9 +128,9 @@ public class SlipDetector {
     private int distanceExceedCounter = 0;
     private int overlayCounter = 0;
 
-    // Frame skip for performance
-    private int frameCounter = 0;
-    private static final int PROCESS_EVERY_N_FRAMES = 3;
+    // (Frame skipping removed — matches Python which processes every frame.
+    //  If CPU becomes an issue, re-introduce carefully so prevGray stays consistent
+    //  with the frame used for optical flow.)
 
     // Active state
     private boolean active = false;
@@ -136,6 +143,7 @@ public class SlipDetector {
     public SlipDetector() {
         orb = ORB.create(1500);
         bf = BFMatcher.create(BFMatcher.BRUTEFORCE_HAMMING, false);
+        clahe = Imgproc.createCLAHE(2.0, new Size(8, 8));
     }
 
     public boolean isActive() {
@@ -182,7 +190,6 @@ public class SlipDetector {
         scaleOutlierCounter = 0;
         distanceExceedCounter = 0;
         overlayCounter = 0;
-        frameCounter = 0;
     }
 
     private static double clamp01(double value) {
@@ -238,18 +245,19 @@ public class SlipDetector {
         return computeEntropy(gray) >= FEATURE_RICH_ENTROPY_MIN;
     }
 
-    private void setReference(Mat gray) {
+    /**
+     * Set reference from an already-CLAHE'd grayscale frame at PROC_WIDTH x PROC_HEIGHT.
+     * Matches Python trial_32.py 's' key handler (line 683): reference_frame = gray.copy()
+     * where `gray` is already clahe.apply(gray_raw).
+     */
+    private void setReference(Mat claheGray) {
         releaseMatResources();
 
-        frameWidth = gray.cols();
-        frameHeight = gray.rows();
+        frameWidth = claheGray.cols();
+        frameHeight = claheGray.rows();
         refCenter = new Point(frameWidth / 2, frameHeight / 2);
 
-        // Apply CLAHE
-        Mat claheGray = new Mat();
-        Imgproc.createCLAHE(2.0, new Size(8, 8)).apply(gray, claheGray);
-
-        referenceFrame = claheGray;
+        referenceFrame = claheGray.clone();
         refKp = new MatOfKeyPoint();
         refDesc = new Mat();
         orb.detectAndCompute(referenceFrame, new Mat(), refKp, refDesc);
@@ -278,46 +286,46 @@ public class SlipDetector {
 
         referenceSet = true;
         Log.d(TAG, "Reference set. Feature-rich: " + wasFeatureRich +
-              ", keypoints: " + refKp.toArray().length);
+              ", keypoints: " + refKp.toArray().length +
+              ", size: " + frameWidth + "x" + frameHeight);
     }
 
     public SlipResult processFrame(Bitmap bitmap) {
         if (!active) return SlipResult.notTracking();
 
-        // Convert bitmap to Mat
+        // 1. Convert bitmap to Mat (RGBA)
         Mat rgba = new Mat();
         Utils.bitmapToMat(bitmap, rgba);
-        Mat gray = new Mat();
-        Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGBA2GRAY);
+
+        // 2. Resize to fixed processing dimensions (matches Python: cv2.resize to 960x720)
+        //    All thresholds in this class are tuned for this exact size.
+        Mat resizedRgba = new Mat();
+        Imgproc.resize(rgba, resizedRgba, new Size(PROC_WIDTH, PROC_HEIGHT));
         rgba.release();
 
-        // If no reference yet, capture it from first frame
+        // 3. Convert to grayscale
+        Mat grayRaw = new Mat();
+        Imgproc.cvtColor(resizedRgba, grayRaw, Imgproc.COLOR_RGBA2GRAY);
+        resizedRgba.release();
+
+        // 4. Apply CLAHE (matches Python line 460: gray = clahe.apply(gray_raw))
+        Mat claheGray = new Mat();
+        clahe.apply(grayRaw, claheGray);
+        grayRaw.release();
+
+        // 5. Set reference on first frame (matches Python 's' key handler)
         if (!referenceSet) {
-            setReference(gray);
-            gray.release();
+            setReference(claheGray);
+            claheGray.release();
             return new SlipResult(0, 1.0, true, false, null,
                 (int) refCenter.x, (int) refCenter.y, (int) refCenter.x, (int) refCenter.y);
         }
 
-        // Frame skip: only run CV every Nth frame
-        frameCounter++;
-        if (frameCounter % PROCESS_EVERY_N_FRAMES != 0) {
-            gray.release();
-            return new SlipResult(lastDistance, lastScaleEst, true, false, null,
-                livePt != null ? livePt.x : (int) refCenter.x,
-                livePt != null ? livePt.y : (int) refCenter.y,
-                (int) refCenter.x, (int) refCenter.y);
-        }
-
-        // Apply CLAHE
-        Mat claheGray = new Mat();
-        Imgproc.createCLAHE(2.0, new Size(8, 8)).apply(gray, claheGray);
-        gray.release();
-
+        // 6. Track — prevGray is updated inside track() only on successful consensus,
+        //    matching Python line 627.
         SlipResult result = track(claheGray);
-
-        if (prevGray != null) prevGray.release();
-        prevGray = claheGray;
+        // Note: track() takes ownership of claheGray when consensus succeeds (stores as prevGray);
+        // otherwise releases it internally. See track() for exact behavior.
 
         return result;
     }
@@ -342,7 +350,7 @@ public class SlipDetector {
             int featureLossLimit = FEATURE_LOSS_FRAMES + (nearCenter ? CENTER_GRACE_FRAMES : 0);
             if (featureLossCounter >= featureLossLimit) {
                 resetTrackingForRecovery("low_feature_density");
-                kp.release(); desc.release();
+                kp.release(); desc.release(); gray.release();
                 return makeResetResult("low_feature_density");
             }
 
@@ -353,7 +361,7 @@ public class SlipDetector {
             int lowEntropyLimit = LOW_ENTROPY_FRAMES + (nearCenter ? CENTER_GRACE_FRAMES : 0);
             if (lowEntropyCounter >= lowEntropyLimit) {
                 resetTrackingForRecovery("low_entropy");
-                kp.release(); desc.release();
+                kp.release(); desc.release(); gray.release();
                 return makeResetResult("low_entropy");
             }
         } else {
@@ -406,6 +414,7 @@ public class SlipDetector {
                     ptDistance(c.pt, new Point((int) refCenter.x, (int) refCenter.y))
                         >= DISTANCE_THRESHOLD * DISTANCE_FAST_FACTOR) {
                     resetTrackingForRecovery("sudden_movement");
+                    gray.release();
                     return makeResetResult("sudden_movement");
                 }
             }
@@ -414,10 +423,14 @@ public class SlipDetector {
             int lostLimit = lostMax + (nearCenter ? CENTER_GRACE_FRAMES : 0);
             if (lostCounter >= lostLimit) {
                 resetTrackingForRecovery("lost_consensus");
+                gray.release();
                 return makeResetResult("lost_consensus");
             }
 
-            // Return last known values
+            // No consensus but still alive: don't update prevGray (matches Python line 627
+            // which updates prev_gray only inside the else/success branch). Keeping
+            // prev_gray stable lets the next frame's optical flow recover.
+            gray.release();
             return new SlipResult(lastDistance, lastScaleEst, true, false, null,
                 livePt != null ? livePt.x : (int) refCenter.x,
                 livePt != null ? livePt.y : (int) refCenter.y,
@@ -443,17 +456,23 @@ public class SlipDetector {
         if (distance > DISTANCE_THRESHOLD) {
             if (fastDistance || fastJump) {
                 resetTrackingForRecovery("sudden_movement");
+                gray.release();
                 return makeResetResult("sudden_movement");
             }
             int distLimit = DISTANCE_CONFIRM_FRAMES + (nearCenter ? CENTER_GRACE_FRAMES : 0);
             distanceExceedCounter++;
             if (distanceExceedCounter >= distLimit) {
                 resetTrackingForRecovery("distance_threshold");
+                gray.release();
                 return makeResetResult("distance_threshold");
             }
         } else {
             distanceExceedCounter = 0;
         }
+
+        // Consensus succeeded — promote current frame to prevGray (matches Python line 627)
+        if (prevGray != null) prevGray.release();
+        prevGray = gray;
 
         return new SlipResult(distance, lastScaleEst, true, false, null,
             livePt.x, livePt.y, (int) refCenter.x, (int) refCenter.y);

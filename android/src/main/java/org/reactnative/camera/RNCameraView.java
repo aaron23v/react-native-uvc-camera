@@ -209,9 +209,13 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
           slipDetectorProcessing = true;
           final int frameW = width;
           final int frameH = height;
+          // Copy bitmap NOW on the camera callback thread — the source bitmap may be
+          // reused/overwritten by the camera pipeline before our background thread runs.
+          final Bitmap frameCopy = data.copy(
+              data.getConfig() != null ? data.getConfig() : Bitmap.Config.ARGB_8888, false);
           new Thread(() -> {
             try {
-              SlipResult result = mSlipDetector.processFrame(data);
+              SlipResult result = mSlipDetector.processFrame(frameCopy);
 
               long now = System.currentTimeMillis();
               if (now - lastSlipEmitTime >= SLIP_EMIT_THROTTLE_MS) {
@@ -240,6 +244,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
             } catch (Exception e) {
               Log.w("SlipDebug", "Slip detection error: " + e.getMessage(), e);
             } finally {
+              if (frameCopy != null && !frameCopy.isRecycled()) frameCopy.recycle();
               slipDetectorProcessing = false;
             }
           }).start();
