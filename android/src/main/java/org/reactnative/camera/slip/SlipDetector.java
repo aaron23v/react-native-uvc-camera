@@ -387,8 +387,15 @@ public class SlipDetector {
 
         List<ConsensusSelector.Candidate> candidates = new ArrayList<>();
 
-        // Method 1: ORB + Homography
-        orbHomography(desc, kp, candidates, nearCenter);
+        // Method 1: ORB + Homography. Returns true when the homography-derived scale
+        // has been outside SCALE_MIN..SCALE_MAX for SCALE_OUTLIER_FRAMES consecutive
+        // frames, matching Python's "Auto-reset (axial Z scale)" path.
+        boolean shouldResetForScale = orbHomography(desc, kp, candidates, nearCenter);
+        if (shouldResetForScale) {
+            resetTrackingForRecovery("axial_scale");
+            kp.release(); desc.release(); gray.release();
+            return makeResetResult("axial_scale");
+        }
 
         // Method 2: Template matching
         templateMatch(gray, candidates, strongThresh, trackingFeatureRich);
@@ -508,9 +515,11 @@ public class SlipDetector {
     }
 
     // ---- Method 1: ORB + Homography ----
-    private void orbHomography(Mat desc, MatOfKeyPoint kp, List<ConsensusSelector.Candidate> candidates,
-                               boolean nearCenter) {
-        if (desc == null || desc.empty() || refDesc == null || refDesc.empty()) return;
+    // Returns true if caller should reset tracking for axial-Z scale outlier (matches
+    // Python trial_32.py line 537-538: "Auto-reset (axial Z scale)" path).
+    private boolean orbHomography(Mat desc, MatOfKeyPoint kp, List<ConsensusSelector.Candidate> candidates,
+                                   boolean nearCenter) {
+        if (desc == null || desc.empty() || refDesc == null || refDesc.empty()) return false;
 
         try {
             List<MatOfDMatch> matchesList = new ArrayList<>();
@@ -526,7 +535,7 @@ public class SlipDetector {
 
             if (good.size() < MIN_GOOD_MATCHES) {
                 scaleOutlierCounter = 0;
-                return;
+                return false;
             }
 
             KeyPoint[] refKpArr = refKp.toArray();
@@ -548,7 +557,7 @@ public class SlipDetector {
             if (H == null || H.empty()) {
                 scaleOutlierCounter = 0;
                 srcPts.release(); dstPts.release(); mask.release();
-                return;
+                return false;
             }
 
             int inliers = Core.countNonZero(mask);
@@ -557,7 +566,7 @@ public class SlipDetector {
             if (inliers < MIN_INLIERS || inlierRatio < INLIER_RATIO_MIN) {
                 scaleOutlierCounter = 0;
                 H.release(); srcPts.release(); dstPts.release(); mask.release();
-                return;
+                return false;
             }
 
             double sx = Math.sqrt(Math.pow(H.get(0, 0)[0], 2) + Math.pow(H.get(1, 0)[0], 2));
@@ -570,8 +579,9 @@ public class SlipDetector {
                 int scaleLimit = SCALE_OUTLIER_FRAMES + (nearCenter ? CENTER_GRACE_FRAMES : 0);
                 scaleOutlierCounter++;
                 if (scaleOutlierCounter >= scaleLimit) {
+                    // Matches Python line 537-538: "Auto-reset (axial Z scale)"
                     H.release(); srcPts.release(); dstPts.release(); mask.release();
-                    return;
+                    return true;
                 }
             } else {
                 scaleOutlierCounter = 0;
@@ -602,8 +612,10 @@ public class SlipDetector {
             }
 
             H.release(); srcPts.release(); dstPts.release(); mask.release();
+            return false;
         } catch (Exception e) {
             Log.w(TAG, "ORB homography error: " + e.getMessage());
+            return false;
         }
     }
 
@@ -724,8 +736,14 @@ public class SlipDetector {
             Core.multiply(refF, window, refF);
             Core.multiply(curF, window, curF);
 
+            // Pass an empty Mat (not `window`) so phaseCorrelate skips its internal
+            // multiply-by-window step. We've already applied the window manually above,
+            // matching Python trial_32.py line 364 which calls the 2-arg cv2.phaseCorrelate.
+            // Passing `window` here would apply it a second time and attenuate the response.
+            Mat noWindow = new Mat();
             double[] response = new double[1];
-            org.opencv.core.Point shift = Imgproc.phaseCorrelate(refF, curF, window, response);
+            org.opencv.core.Point shift = Imgproc.phaseCorrelate(refF, curF, noWindow, response);
+            noWindow.release();
 
             if (response[0] >= phaseMin) {
                 double scaleX = (double) frameWidth / PHASE_DS_WIDTH;
