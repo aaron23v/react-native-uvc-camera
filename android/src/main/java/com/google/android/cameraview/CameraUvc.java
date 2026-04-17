@@ -290,8 +290,10 @@ class CameraUvc extends CameraViewImpl {
         public void onDisconnect(final UsbDevice device, final UsbControlBlock ctrlBlock) {
             Log.d("AMPA", "onDisconnect: device=" + device.getDeviceName());
             if (mCameraHandler != null) {
-                Handler handler = new Handler(Looper.getMainLooper());
-                handler.postDelayed(new Runnable() {
+                // stopPreview() blocks the caller on mSync.wait() until the native
+                // uvc_stop_streaming drain completes (~5s). Run off the main thread
+                // so React Navigation exit animations don't stutter.
+                Thread closer = new Thread(new Runnable() {
                     @Override
                     public void run() {
                         if (mCameraHandler != null) {
@@ -301,7 +303,8 @@ class CameraUvc extends CameraViewImpl {
                             mCameraHandler.close();
                         }
                     }
-                }, 0);
+                }, "UvcCamera-Close");
+                closer.start();
             }
             mCtrlBlock = null;
         }
