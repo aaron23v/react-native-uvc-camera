@@ -366,7 +366,16 @@ class CameraUvc extends CameraViewImpl {
                 mCameraHandler.stopRecording();
                 mIsRecording = false;
             }
-            mCameraHandler.close();
+            // mCameraHandler.close() blocks the caller on mSync.wait() until native
+            // uvc_stop_streaming drains (~5s worst case). On RN view-drop / onHostPause
+            // this runs on the UI thread and freezes React Navigation exit animations.
+            final com.serenegiant.usbcameracommon.UVCCameraHandler handler = mCameraHandler;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    handler.close();
+                }
+            }, "UvcCamera-Stop").start();
         }
         // if (mUVCCameraView != null)
         //     mUVCCameraView.onPause();
