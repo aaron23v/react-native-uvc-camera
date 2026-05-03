@@ -233,29 +233,6 @@ public class RNCameraViewHelper {
     reactContext.getNativeModule(UIManagerModule.class).getEventDispatcher().dispatchEvent(event);
   }
 
-  // Text recognition event
-
-  public static void emitTextRecognizedEvent(
-      ViewGroup view,
-      String textBlocks,
-      ImageDimensions dimensions) {
-    float density = view.getResources().getDisplayMetrics().density;
-
-    double scaleX = (double) view.getWidth() / (dimensions.getWidth() * density);
-    double scaleY = (double) view.getHeight() / (dimensions.getHeight() * density);
-
-    TextRecognizedEvent event = TextRecognizedEvent.obtain(
-        view.getId(),
-        textBlocks,
-        dimensions,
-        scaleX,
-        scaleY
-    );
-
-    ReactContext reactContext = (ReactContext) view.getContext();
-    reactContext.getNativeModule(UIManagerModule.class).getEventDispatcher().dispatchEvent(event);
-  }
-
   // Utilities
 
   public static int getCorrectCameraRotation(int rotation, int facing) {

@@ -20,16 +20,8 @@ import android.widget.Toast;
 import com.facebook.react.bridge.*;
 import com.facebook.react.uimanager.ThemedReactContext;
 import com.google.android.cameraview.CameraView;
-import com.google.android.gms.tasks.OnFailureListener;
-import com.google.android.gms.tasks.OnSuccessListener;
-import com.google.android.gms.tasks.Task;
 import com.google.android.gms.vision.barcode.Barcode;
 import com.google.android.gms.vision.face.Face;
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.text.Text;
-import com.google.mlkit.vision.text.TextRecognition;
-import  com.google.mlkit.vision.text.TextRecognizer;
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.DecodeHintType;
 import com.google.zxing.MultiFormatReader;
@@ -48,7 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class RNCameraView extends CameraView implements LifecycleEventListener, BarCodeScannerAsyncTaskDelegate, FaceDetectorAsyncTaskDelegate,
-    BarcodeDetectorAsyncTaskDelegate, TextRecognizerAsyncTaskDelegate {
+    BarcodeDetectorAsyncTaskDelegate {
   private ThemedReactContext mThemedReactContext;
   private Queue<Promise> mPictureTakenPromises = new ConcurrentLinkedQueue<>();
   private Map<Promise, ReadableMap> mPictureTakenOptions = new ConcurrentHashMap<>();
@@ -64,17 +56,14 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   public volatile boolean barCodeScannerTaskLock = false;
   public volatile boolean faceDetectorTaskLock = false;
   public volatile boolean googleBarcodeDetectorTaskLock = false;
-  public volatile boolean textRecognizerTaskLock = false;
 
   // Scanning-related properties
   private MultiFormatReader mMultiFormatReader;
   private RNFaceDetector mFaceDetector;
   private RNBarcodeDetector mGoogleBarcodeDetector;
-  private TextRecognizer mTextRecognizer;
   private boolean mShouldDetectFaces = false;
   private boolean mShouldGoogleDetectBarcodes = false;
   private boolean mShouldScanBarCodes = false;
-  private boolean mShouldRecognizeText = false;
   private int mFaceDetectorMode = RNFaceDetector.FAST_MODE;
   private int mFaceDetectionLandmarks = RNFaceDetector.NO_LANDMARKS;
   private int mFaceDetectionClassifications = RNFaceDetector.NO_CLASSIFICATIONS;
@@ -160,29 +149,6 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
 //          BarcodeDetectorAsyncTaskDelegate delegate = (BarcodeDetectorAsyncTaskDelegate) cameraView;
 //          new BarcodeDetectorAsyncTask(delegate, mGoogleBarcodeDetector, correctData, correctWidth, correctHeight, correctRotation).execute();
 //        }
-
-        if (mShouldRecognizeText && !textRecognizerTaskLock && cameraView instanceof TextRecognizerAsyncTaskDelegate) {
-          textRecognizerTaskLock = true;
-          TextRecognizerAsyncTaskDelegate delegate = (TextRecognizerAsyncTaskDelegate) cameraView;
-          InputImage image = InputImage.fromBitmap(data, 90);
-          Task<Text> result =
-                  mTextRecognizer.process(image)
-                          .addOnSuccessListener(new OnSuccessListener<Text>() {
-                            @Override
-                            public void onSuccess(Text visionText) {
-                              String detectedText = visionText.getText();
-                              delegate.onTextRecognized(detectedText, width, height, rotation);
-                              delegate.onTextRecognizerTaskCompleted();
-                            }
-                          })
-                          .addOnFailureListener(
-                                  new OnFailureListener() {
-                                    @Override
-                                    public void onFailure(@NonNull Exception e) {
-                                      delegate.onTextRecognizerTaskCompleted();
-                                    }
-                                  });
-        }
       }
     });
   }
@@ -308,7 +274,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
       initBarcodeReader();
     }
     this.mShouldScanBarCodes = shouldScanBarCodes;
-    setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes || mShouldRecognizeText);
+    setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes);
   }
 
   public void onBarCodeRead(Result barCode) {
@@ -362,7 +328,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
       setupFaceDetector();
     }
     this.mShouldDetectFaces = shouldDetectFaces;
-    setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes || mShouldRecognizeText);
+    setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes);
   }
 
   public void setShouldGoogleDetectBarcodes(boolean shouldDetectBarcodes) {
@@ -370,7 +336,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
       setupBarcodeDetector();
     }
     this.mShouldGoogleDetectBarcodes = shouldDetectBarcodes;
-    setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes || mShouldRecognizeText);
+    setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes);
   }
 
   public void onFacesDetected(SparseArray<Face> facesReported, int sourceWidth, int sourceHeight, int sourceRotation) {
@@ -405,13 +371,6 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     mGoogleBarcodeDetector.setBarcodeType(mGoogleVisionBarCodeType);
   }
 
-  /**
-   * Initial setup of the text recongizer
-   */
-  private void setupTextRecongnizer() {
-    mTextRecognizer =  TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-  }
-
   public void setGoogleVisionBarcodeType(int barcodeType) {
     mGoogleVisionBarCodeType = barcodeType;
     if (mGoogleBarcodeDetector != null) {
@@ -440,31 +399,6 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   @Override
   public void onBarcodeDetectingTaskCompleted() {
     googleBarcodeDetectorTaskLock = false;
-  }
-
-  public void setShouldRecognizeText(boolean shouldRecognizeText) {
-    if (shouldRecognizeText && mTextRecognizer == null) {
-      setupTextRecongnizer();
-    }
-    this.mShouldRecognizeText = shouldRecognizeText;
-    setScanning(mShouldDetectFaces || mShouldGoogleDetectBarcodes || mShouldScanBarCodes || mShouldRecognizeText);
-  }
-
-  @Override
-  public void onTextRecognized(String text, int sourceWidth, int sourceHeight, int sourceRotation) {
-    if (!mShouldRecognizeText) {
-      return;
-    }
-
-//    SparseArray<TextBlock> textBlocksDetected = textBlocks == null ? new SparseArray<TextBlock>() : textBlocks;
-    ImageDimensions dimensions = new ImageDimensions(sourceWidth, sourceHeight, sourceRotation, getFacing());
-
-    RNCameraViewHelper.emitTextRecognizedEvent(this, text, dimensions);
-  }
-
-  @Override
-  public void onTextRecognizerTaskCompleted() {
-    textRecognizerTaskLock = false;
   }
 
   @Override
@@ -499,13 +433,25 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     if (mGoogleBarcodeDetector != null) {
       mGoogleBarcodeDetector.release();
     }
-    if (mTextRecognizer != null) {
-      mTextRecognizer.close();
-    }
     mMultiFormatReader = null;
     stop();
     destroy();
-    mThemedReactContext.removeLifecycleEventListener(this);
+    cleanup();
+  }
+
+  /**
+   * Removes the LifecycleEventListener registered in the constructor.
+   * Must be called when the view is permanently dropped from the RN tree
+   * (e.g. from CameraViewManager.onDropViewInstance), not just on Activity
+   * destruction. Without this, every navigation that mounts a new RNCameraView
+   * adds a new listener that never gets unregistered, accumulating until
+   * onHostResume fires N times in a tight loop.
+   * Safe to call multiple times — removeLifecycleEventListener is idempotent.
+   */
+  public void cleanup() {
+    if (mThemedReactContext != null) {
+      mThemedReactContext.removeLifecycleEventListener(this);
+    }
   }
 
   private boolean hasCameraPermissions() {

@@ -74,8 +74,6 @@ dependencies {
   implementation "androidx.exifinterface:exifinterface:$supportLibVersion"
   implementation "androidx.annotation:annotation:$supportLibVersion"
   implementation "androidx.legacy:legacy-support-v4:$supportLibVersion"
-  implementation 'com.google.android.gms:play-services-mlkit-text-recognition:19.0.1'
-
 
   implementation project(':libuvccamera')
   implementation project(':usbCameraCommon')
