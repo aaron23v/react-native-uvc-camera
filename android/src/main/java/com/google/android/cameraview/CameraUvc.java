@@ -100,11 +100,14 @@ class CameraUvc extends CameraViewImpl {
         @Override
         public void onOpen(){
             Log.d("AMPA", "callback onOpen: camera opened, refreshing surface");
-            if (mUVCCameraView != null && mUVCCameraView.getSurfaceTexture() != null) {
-                mPreviewSurface = new Surface(mUVCCameraView.getSurfaceTexture());
+            // getSurfaceTexture() is destructive (releases + recreates the SurfaceTexture
+            // and its GL texture on every call), so resolve it once and reuse.
+            SurfaceTexture st = (mUVCCameraView != null) ? mUVCCameraView.getSurfaceTexture() : null;
+            if (st != null) {
+                mPreviewSurface = new Surface(st);
                 Log.d("AMPA", "callback onOpen: recreated preview surface");
             } else {
-                Log.d("AMPA", "callback onOpen: could not recreate surface, view=" + (mUVCCameraView != null) + " texture=" + (mUVCCameraView != null ? mUVCCameraView.getSurfaceTexture() != null : false));
+                Log.d("AMPA", "callback onOpen: could not recreate surface, view=" + (mUVCCameraView != null) + " texture=false");
             }
             mCallback.onCameraOpened();
             startCaptureSession();
