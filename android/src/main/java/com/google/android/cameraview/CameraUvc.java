@@ -268,17 +268,33 @@ class CameraUvc extends CameraViewImpl {
     private final OnDeviceConnectListener mOnDeviceConnectListener = new OnDeviceConnectListener() {
         @Override
         public void onAttach(final UsbDevice device) {
-            Log.d("AMPA", "onAttach: device=" + device.getDeviceName() + " isOpened=" + mCameraHandler.isOpened());
-            if (!mCameraHandler.isOpened()) {
+            // Gate on mCtrlBlock (cleared synchronously by onDisconnect/onDettach),
+            // not isOpened() — the latter reflects mUVCCamera state which only flips
+            // false after MSG_PREVIEW_STOP+MSG_CLOSE drain (~5s). A fast firmware
+            // hub-reset that re-enumerates the camera in <5s would be silently
+            // dropped by the old gate, leaving the camera attached but unopened.
+            final boolean openedFlag = mCameraHandler.isOpened();
+            final boolean hasCtrlBlock = mCtrlBlock != null;
+            Log.d("AMPA", "onAttach: device=" + device.getDeviceName()
+                + " isOpened=" + openedFlag + " hasCtrlBlock=" + hasCtrlBlock);
+            if (!hasCtrlBlock) {
                 UsbDevice camera = getFirstCameraDevice();
-                Log.d("AMPA", "onAttach: requesting permission for camera=" + (camera != null ? camera.getDeviceName() : "null"));
+                Log.d("AMPA", "onAttach: requesting permission for camera="
+                    + (camera != null ? camera.getDeviceName() : "null")
+                    + " (closeInFlight=" + openedFlag + ")");
                 requestCameraPermission(camera);
+            } else {
+                Log.d("AMPA", "onAttach: skipped (mCtrlBlock already set)");
             }
         }
 
         @Override
         public void onConnect(final UsbDevice device, final UsbControlBlock ctrlBlock, final boolean createNew) {
-            Log.d("AMPA", "onConnect: device=" + device.getDeviceName() + " class=" + device.getDeviceClass() + " hasCtrlBlock=" + (mCtrlBlock != null));
+            Log.d("AMPA", "onConnect: device=" + device.getDeviceName()
+                + " class=" + device.getDeviceClass()
+                + " hasCtrlBlock=" + (mCtrlBlock != null)
+                + " isOpened=" + mCameraHandler.isOpened()
+                + " createNew=" + createNew);
             // Skip if we already have a connection — prevents double-connect from
             // queueing two MSG_OPENs (second one destroys the first's preview)
             if (mCtrlBlock != null) {
@@ -286,35 +302,47 @@ class CameraUvc extends CameraViewImpl {
                 return;
             }
             mCtrlBlock = ctrlBlock;
+            // Note: open() is queued behind any in-flight MSG_PREVIEW_STOP/MSG_CLOSE
+            // on the camera handler thread. handleOpen calls handleClose first, so
+            // re-opening while a close is still draining is safe and serialized.
+            Log.d("AMPA", "onConnect: enqueueing mCameraHandler.open()");
             mCameraHandler.open(mCtrlBlock);
         }
 
         @Override
         public void onDisconnect(final UsbDevice device, final UsbControlBlock ctrlBlock) {
-            Log.d("AMPA", "onDisconnect: device=" + device.getDeviceName());
+            Log.d("AMPA", "onDisconnect: device=" + device.getDeviceName()
+                + " isPreviewing=" + (mCameraHandler != null && mCameraHandler.isPreviewing()));
             if (mCameraHandler != null) {
                 // stopPreview() blocks the caller on mSync.wait() until the native
                 // uvc_stop_streaming drain completes (~5s). Run off the main thread
                 // so React Navigation exit animations don't stutter.
+                final long t0 = android.os.SystemClock.elapsedRealtime();
                 Thread closer = new Thread(new Runnable() {
                     @Override
                     public void run() {
+                        Log.d("AMPA", "UvcCamera-Close: thread started");
                         if (mCameraHandler != null) {
                             if (mCameraHandler.isPreviewing()) {
                                 stopCaptureSession();
                             }
                             mCameraHandler.close();
                         }
+                        Log.d("AMPA", "UvcCamera-Close: thread finished after "
+                            + (android.os.SystemClock.elapsedRealtime() - t0) + "ms");
                     }
                 }, "UvcCamera-Close");
                 closer.start();
             }
+            // Clear synchronously so a re-attach that races the close thread can
+            // request permission and queue a fresh open behind the close.
             mCtrlBlock = null;
         }
 
         @Override
         public void onDettach(final UsbDevice device) {
-            Log.d("AMPA", "onDettach: device=" + device.getDeviceName());
+            Log.d("AMPA", "onDettach: device=" + device.getDeviceName()
+                + " hadCtrlBlock=" + (mCtrlBlock != null));
             // Clear stale control block so start() doesn't reuse it
             mCtrlBlock = null;
         }
