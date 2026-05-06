@@ -318,15 +318,20 @@ class CameraUvc extends CameraViewImpl {
                 // uvc_stop_streaming drain completes (~5s). Run off the main thread
                 // so React Navigation exit animations don't stutter.
                 final long t0 = android.os.SystemClock.elapsedRealtime();
+                final UsbDevice closingDevice = device;
                 Thread closer = new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        Log.d("AMPA", "UvcCamera-Close: thread started");
+                        Log.d("AMPA", "UvcCamera-Close: thread started for "
+                            + (closingDevice != null ? closingDevice.getDeviceName() : "null"));
                         if (mCameraHandler != null) {
                             if (mCameraHandler.isPreviewing()) {
                                 stopCaptureSession();
                             }
-                            mCameraHandler.close();
+                            // Identity-aware close: MSG_CLOSE will be skipped on the
+                            // camera handler thread if a faster MSG_OPEN has already
+                            // replaced mUVCCamera with a camera for a different device.
+                            mCameraHandler.close(closingDevice);
                         }
                         Log.d("AMPA", "UvcCamera-Close: thread finished after "
                             + (android.os.SystemClock.elapsedRealtime() - t0) + "ms");
@@ -334,17 +339,35 @@ class CameraUvc extends CameraViewImpl {
                 }, "UvcCamera-Close");
                 closer.start();
             }
-            // Clear synchronously so a re-attach that races the close thread can
-            // request permission and queue a fresh open behind the close.
-            mCtrlBlock = null;
+            // Only invalidate mCtrlBlock if it was for the device that just died.
+            // Without this guard, an onDisconnect fired synchronously from inside
+            // UVCCamera.close() (clone close on the camera handler thread) would
+            // null out a *newer* ctrlBlock set by a recent onConnect for a different
+            // device — wiping the current connection state mid-recovery.
+            if (mCtrlBlock != null) {
+                final UsbDevice held = mCtrlBlock.getDevice();
+                if (held == null || held.equals(device)) {
+                    Log.d("AMPA", "onDisconnect: clearing mCtrlBlock for " + device.getDeviceName());
+                    mCtrlBlock = null;
+                } else {
+                    Log.d("AMPA", "onDisconnect: keeping mCtrlBlock — held="
+                        + held.getDeviceName() + " disconnecting=" + device.getDeviceName());
+                }
+            }
         }
 
         @Override
         public void onDettach(final UsbDevice device) {
             Log.d("AMPA", "onDettach: device=" + device.getDeviceName()
                 + " hadCtrlBlock=" + (mCtrlBlock != null));
-            // Clear stale control block so start() doesn't reuse it
-            mCtrlBlock = null;
+            // Same identity guard as onDisconnect — only clear if the dettach is for
+            // the device whose ctrlBlock we currently hold.
+            if (mCtrlBlock != null) {
+                final UsbDevice held = mCtrlBlock.getDevice();
+                if (held == null || held.equals(device)) {
+                    mCtrlBlock = null;
+                }
+            }
         }
 
         @Override

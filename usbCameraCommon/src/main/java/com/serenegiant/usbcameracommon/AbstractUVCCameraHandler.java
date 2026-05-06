@@ -161,10 +161,22 @@ abstract class AbstractUVCCameraHandler extends Handler {
 	}
 
 	public void close() {
-		if (DEBUG) Log.v(TAG, "close:");
+		close(null);
+	}
+
+	/**
+	 * Identity-aware close. The expectedDevice is delivered with MSG_CLOSE so that
+	 * handleClose can verify the currently open camera still matches the device the
+	 * caller meant to close. Under fast hub-reset cascades the message queue can
+	 * stack a stale close behind a fresh open for a different device — without the
+	 * identity check, MSG_CLOSE would destroy the freshly-opened camera. Pass null
+	 * for unconditional close (e.g. user-initiated stop / release).
+	 */
+	public void close(final UsbDevice expectedDevice) {
+		if (DEBUG) Log.v(TAG, "close: expectedDevice=" + (expectedDevice != null ? expectedDevice.getDeviceName() : "null"));
 		if (isOpened()) {
 			stopPreview();
-			sendEmptyMessage(MSG_CLOSE);
+			sendMessage(obtainMessage(MSG_CLOSE, expectedDevice));
 		}
 		if (DEBUG) Log.v(TAG, "close:finished");
 	}
@@ -366,7 +378,7 @@ abstract class AbstractUVCCameraHandler extends Handler {
 			thread.handleOpen((USBMonitor.UsbControlBlock)msg.obj);
 			break;
 		case MSG_CLOSE:
-			thread.handleClose();
+			thread.handleClose((UsbDevice) msg.obj);
 			break;
 		case MSG_PREVIEW_START:
 			thread.handleStartPreview(msg.obj);
@@ -529,6 +541,28 @@ abstract class AbstractUVCCameraHandler extends Handler {
 				callOnError(e);
 			}
 			if (DEBUG) Log.i(TAG, "supportedSize:" + (mUVCCamera != null ? mUVCCamera.getSupportedSize() : null));
+		}
+
+		/**
+		 * Identity-aware variant. If expectedDevice is non-null and the currently open
+		 * camera is for a different device, skip the close — the queued close is stale
+		 * (a faster open already replaced the camera). Falls through to the normal
+		 * unconditional close otherwise.
+		 */
+		public void handleClose(final UsbDevice expectedDevice) {
+			if (expectedDevice != null) {
+				final UVCCamera camera;
+				synchronized (mSync) { camera = mUVCCamera; }
+				if (camera != null) {
+					final UsbDevice cur = camera.getDevice();
+					if (cur != null && !expectedDevice.equals(cur)) {
+						Log.d("AMPA", "handleClose: SKIPPED stale close — current="
+							+ cur.getDeviceName() + " expected=" + expectedDevice.getDeviceName());
+						return;
+					}
+				}
+			}
+			handleClose();
 		}
 
 		public void handleClose() {
