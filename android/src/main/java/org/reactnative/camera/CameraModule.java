@@ -274,4 +274,38 @@ public class CameraModule extends ReactContextBaseJavaModule {
           }
       });
   }
+
+  @ReactMethod
+  public void setSlipReference(final int viewTag) {
+      final ReactApplicationContext context = getReactApplicationContext();
+      UIManagerModule uiManager = context.getNativeModule(UIManagerModule.class);
+      uiManager.addUIBlock(new UIBlock() {
+          @Override
+          public void execute(NativeViewHierarchyManager nativeViewHierarchyManager) {
+              try {
+                  RNCameraView cameraView = (RNCameraView) nativeViewHierarchyManager.resolveView(viewTag);
+                  cameraView.setSlipReference();
+              } catch (Exception e) {
+                  e.printStackTrace();
+              }
+          }
+      });
+  }
+
+  @ReactMethod
+  public void resetSlipTracker(final int viewTag) {
+      final ReactApplicationContext context = getReactApplicationContext();
+      UIManagerModule uiManager = context.getNativeModule(UIManagerModule.class);
+      uiManager.addUIBlock(new UIBlock() {
+          @Override
+          public void execute(NativeViewHierarchyManager nativeViewHierarchyManager) {
+              try {
+                  RNCameraView cameraView = (RNCameraView) nativeViewHierarchyManager.resolveView(viewTag);
+                  cameraView.resetSlipTracker();
+              } catch (Exception e) {
+                  e.printStackTrace();
+              }
+          }
+      });
+  }
 }

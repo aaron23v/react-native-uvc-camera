@@ -233,6 +233,21 @@ public class RNCameraViewHelper {
     reactContext.getNativeModule(UIManagerModule.class).getEventDispatcher().dispatchEvent(event);
   }
 
+  // Slip tracker event
+
+  public static void emitTrackingEvent(
+      ViewGroup view,
+      String state,
+      int distance,
+      double scale,
+      String statusMessage
+  ) {
+    TrackingFrameEvent event = TrackingFrameEvent.obtain(
+        view.getId(), state, distance, scale, statusMessage);
+    ReactContext reactContext = (ReactContext) view.getContext();
+    reactContext.getNativeModule(UIManagerModule.class).getEventDispatcher().dispatchEvent(event);
+  }
+
   // Utilities
 
   public static int getCorrectCameraRotation(int rotation, int facing) {

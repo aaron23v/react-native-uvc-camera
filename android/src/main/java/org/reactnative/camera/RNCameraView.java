@@ -19,8 +19,13 @@ import android.widget.Toast;
 
 import com.facebook.react.bridge.*;
 import com.facebook.react.uimanager.ThemedReactContext;
+import com.google.android.cameraview.CameraUvc;
 import com.google.android.cameraview.CameraView;
+import com.google.android.cameraview.CameraViewImpl;
 import com.google.android.gms.vision.barcode.Barcode;
+import com.serenegiant.usb.IFrameCallback;
+import org.reactnative.sliptracker.RNSlipTracker;
+import org.reactnative.sliptracker.SlipTrackerEvent;
 import com.google.android.gms.vision.face.Face;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.DecodeHintType;
@@ -40,7 +45,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class RNCameraView extends CameraView implements LifecycleEventListener, BarCodeScannerAsyncTaskDelegate, FaceDetectorAsyncTaskDelegate,
-    BarcodeDetectorAsyncTaskDelegate {
+    BarcodeDetectorAsyncTaskDelegate, RNSlipTracker.Listener {
   private ThemedReactContext mThemedReactContext;
   private Queue<Promise> mPictureTakenPromises = new ConcurrentLinkedQueue<>();
   private Map<Promise, ReadableMap> mPictureTakenOptions = new ConcurrentHashMap<>();
@@ -68,6 +73,19 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   private int mFaceDetectionLandmarks = RNFaceDetector.NO_LANDMARKS;
   private int mFaceDetectionClassifications = RNFaceDetector.NO_CLASSIFICATIONS;
   private int mGoogleVisionBarCodeType = Barcode.ALL_FORMATS;
+
+  // --- Slip tracker ---
+  @androidx.annotation.Nullable
+  private RNSlipTracker mSlipTracker;
+  private boolean mTrackingEnabled = false;
+  private final IFrameCallback mTrackingFrameCallback = new IFrameCallback() {
+      @Override
+      public void onFrame(final java.nio.ByteBuffer frame) {
+          final RNSlipTracker t = mSlipTracker;
+          if (t == null || !t.acceptsFrames()) return;
+          t.submitFrame(frame, CameraUvc.PREVIEW_WIDTH, CameraUvc.PREVIEW_HEIGHT);
+      }
+  };
 
   public RNCameraView(ThemedReactContext themedReactContext) {
     super(themedReactContext, true);
@@ -401,6 +419,54 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     googleBarcodeDetectorTaskLock = false;
   }
 
+  public void setTrackingEnabled(boolean enabled) {
+    if (mTrackingEnabled == enabled) return;
+    mTrackingEnabled = enabled;
+    if (enabled) {
+        if (mSlipTracker == null) {
+            mSlipTracker = new RNSlipTracker(this);
+        }
+        mSlipTracker.start();
+        installTrackingFrameCallback();
+    } else {
+        uninstallTrackingFrameCallback();
+        if (mSlipTracker != null) {
+            mSlipTracker.stop();
+            mSlipTracker = null;
+        }
+    }
+  }
+
+  public void setSlipReference() {
+    if (mSlipTracker != null) mSlipTracker.setReference();
+  }
+
+  public void resetSlipTracker() {
+    if (mSlipTracker != null) mSlipTracker.reset();
+  }
+
+  private void installTrackingFrameCallback() {
+    CameraViewImpl impl = getImpl();
+    if (impl instanceof CameraUvc) {
+        ((CameraUvc) impl).enableTrackingFrames(mTrackingFrameCallback);
+    }
+  }
+
+  private void uninstallTrackingFrameCallback() {
+    CameraViewImpl impl = getImpl();
+    if (impl instanceof CameraUvc) {
+        ((CameraUvc) impl).disableTrackingFrames();
+    }
+  }
+
+  // --- RNSlipTracker.Listener ---
+
+  @Override
+  public void onTrackingEvent(SlipTrackerEvent event) {
+    RNCameraViewHelper.emitTrackingEvent(
+        this, event.state, event.distance, event.scale, event.statusMessage);
+  }
+
   @Override
   public void onHostResume() {
     Log.d("AMPA", "ONHOSTRESUME");
@@ -414,6 +480,11 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     } else {
       RNCameraViewHelper.emitMountErrorEvent(this, "Camera permissions not granted - component could not be rendered.");
     }
+    if (mTrackingEnabled && mSlipTracker == null) {
+        mSlipTracker = new RNSlipTracker(this);
+        mSlipTracker.start();
+        installTrackingFrameCallback();
+    }
   }
 
   @Override
@@ -422,6 +493,11 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     if (!mIsPaused && isCameraOpened()) {
       mIsPaused = true;
       stop();
+    }
+    if (mSlipTracker != null) {
+        uninstallTrackingFrameCallback();
+        mSlipTracker.stop();
+        mSlipTracker = null;
     }
   }
 
@@ -434,6 +510,11 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
       mGoogleBarcodeDetector.release();
     }
     mMultiFormatReader = null;
+    if (mSlipTracker != null) {
+        uninstallTrackingFrameCallback();
+        mSlipTracker.stop();
+        mSlipTracker = null;
+    }
     stop();
     destroy();
     cleanup();

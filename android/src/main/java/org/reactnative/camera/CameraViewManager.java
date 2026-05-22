@@ -20,7 +20,8 @@ public class CameraViewManager extends ViewGroupManager<RNCameraView> {
     EVENT_ON_FACES_DETECTED("onFacesDetected"),
     EVENT_ON_BARCODES_DETECTED("onGoogleVisionBarcodesDetected"),
     EVENT_ON_FACE_DETECTION_ERROR("onFaceDetectionError"),
-    EVENT_ON_BARCODE_DETECTION_ERROR("onGoogleVisionBarcodeDetectionError");
+    EVENT_ON_BARCODE_DETECTION_ERROR("onGoogleVisionBarcodeDetectionError"),
+    EVENT_ON_TRACKING_FRAME("onTrackingFrame");
 
     private final String mName;
 
@@ -159,5 +160,10 @@ public class CameraViewManager extends ViewGroupManager<RNCameraView> {
   @ReactProp(name = "googleVisionBarcodeType")
   public void setGoogleVisionBarcodeType(RNCameraView view, int barcodeType) {
     view.setGoogleVisionBarcodeType(barcodeType);
+  }
+
+  @ReactProp(name = "trackingEnabled")
+  public void setTrackingEnabled(RNCameraView view, boolean enabled) {
+    view.setTrackingEnabled(enabled);
   }
 }

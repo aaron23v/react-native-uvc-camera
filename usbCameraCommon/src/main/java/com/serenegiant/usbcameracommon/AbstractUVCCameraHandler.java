@@ -217,6 +217,23 @@ abstract class AbstractUVCCameraHandler extends Handler {
 		if (DEBUG) Log.v(TAG, "stopPreview:finished");
 	}
 
+	/**
+	 * Installs (or clears) a frame callback consumed by code outside this handler
+	 * (e.g. slip tracking). When recording starts, the encoder's own frame callback
+	 * temporarily replaces it; the original is re-applied automatically when
+	 * recording ends. Pass {@code null} to clear.
+	 */
+	public void setExternalFrameCallback(final IFrameCallback callback, final int pixelFormat) {
+		final CameraThread thread = mWeakThread.get();
+		if (thread == null) return;
+		post(new Runnable() {
+			@Override
+			public void run() {
+				thread.applyExternalFrameCallback(callback, pixelFormat);
+			}
+		});
+	}
+
 	protected void captureStill() {
 		checkReleased();
 		sendEmptyMessage(MSG_CAPTURE_STILL);
@@ -437,6 +454,11 @@ abstract class AbstractUVCCameraHandler extends Handler {
 		 */
 		private MediaMuxerWrapper mMuxer;
 		private MediaVideoBufferEncoder mVideoEncoder;
+
+		// External frame callback (e.g. slip tracker). Saved so we can re-apply it
+		// after recording temporarily replaces the callback for the encoder.
+		private IFrameCallback mExternalFrameCallback;
+		private int mExternalFramePixelFormat;
 
 		private long lastFrameProcessedTime;
 		private Object mLastPreviewSurface;
@@ -799,6 +821,24 @@ abstract class AbstractUVCCameraHandler extends Handler {
 			}
 		}
 
+		/**
+		 * Worker-thread method. Called via {@link AbstractUVCCameraHandler#setExternalFrameCallback}.
+		 * Records the request and applies it immediately unless recording is active —
+		 * in which case the recording callback owns the slot until {@code handleStopRecording}
+		 * re-applies the external callback.
+		 */
+		void applyExternalFrameCallback(final IFrameCallback callback, final int pixelFormat) {
+			mExternalFrameCallback = callback;
+			mExternalFramePixelFormat = pixelFormat;
+			if (mUVCCamera != null && mMuxer == null) {
+				try {
+					mUVCCamera.setFrameCallback(callback, pixelFormat);
+				} catch (final Throwable t) {
+					Log.w(TAG_THREAD, "applyExternalFrameCallback: setFrameCallback failed", t);
+				}
+			}
+		}
+
 		public void handleStopRecording() {
 			if (DEBUG) Log.v(TAG_THREAD, "handleStopRecording:mMuxer=" + mMuxer);
 			final MediaMuxerWrapper muxer;
@@ -818,6 +858,14 @@ abstract class AbstractUVCCameraHandler extends Handler {
 			if (muxer != null) {
 				muxer.stopRecording();
 				mUVCCamera.setFrameCallback(null, 0);
+				// Re-apply external (tracking) frame callback if one was registered.
+				if (mExternalFrameCallback != null && mUVCCamera != null) {
+					try {
+						mUVCCamera.setFrameCallback(mExternalFrameCallback, mExternalFramePixelFormat);
+					} catch (final Throwable t) {
+						Log.w(TAG_THREAD, "re-apply external frame callback failed", t);
+					}
+				}
 				// you should not wait here
 				callOnStopRecording();
 			}

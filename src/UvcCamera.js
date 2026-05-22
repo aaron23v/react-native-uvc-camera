@@ -176,11 +176,13 @@ export default class Camera extends React.Component<PropsType, StateType> {
     onGoogleVisionBarcodesDetected: PropTypes.func,
     onFacesDetected: PropTypes.func,
     onTextRecognized: PropTypes.func,
+    onTrackingFrame: PropTypes.func,
     faceDetectionMode: PropTypes.number,
     faceDetectionLandmarks: PropTypes.number,
     faceDetectionClassifications: PropTypes.number,
     barCodeTypes: PropTypes.arrayOf(PropTypes.string),
     googleVisionBarcodeType: PropTypes.number,
+    trackingEnabled: PropTypes.bool,
     type: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     flashMode: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     whiteBalance: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
@@ -272,6 +274,16 @@ export default class Camera extends React.Component<PropsType, StateType> {
     CameraManager.stopRecording(this._cameraHandle);
   }
 
+  setSlipReference() {
+    if (this._cameraHandle == null) return;
+    CameraManager.setSlipReference(this._cameraHandle);
+  }
+
+  resetSlipTracker() {
+    if (this._cameraHandle == null) return;
+    CameraManager.resetSlipTracker(this._cameraHandle);
+  }
+
   _onMountError = ({ nativeEvent }: EventCallbackArgumentsType) => {
     if (this.props.onMountError) {
       this.props.onMountError(nativeEvent);
@@ -281,6 +293,12 @@ export default class Camera extends React.Component<PropsType, StateType> {
   _onCameraReady = () => {
     if (this.props.onCameraReady) {
       this.props.onCameraReady();
+    }
+  };
+
+  _onTrackingFrame = ({ nativeEvent }: EventCallbackArgumentsType) => {
+    if (this.props.onTrackingFrame) {
+      this.props.onTrackingFrame(nativeEvent);
     }
   };
 
@@ -358,6 +376,7 @@ export default class Camera extends React.Component<PropsType, StateType> {
           onBarCodeRead={this._onObjectDetected(this.props.onBarCodeRead)}
           onFacesDetected={this._onObjectDetected(this.props.onFacesDetected)}
           onTextRecognized={this._onObjectDetected(this.props.onTextRecognized)}
+          onTrackingFrame={this._onTrackingFrame}
         >
           {this.renderChildren()}
         </RNCamera>

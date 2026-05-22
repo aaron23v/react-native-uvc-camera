@@ -62,13 +62,13 @@ class CameraUvc extends CameraViewImpl {
      * if your camera does not support specific resolution and mode,
      * {@link UVCCamera#setPreviewSize(int, int, int)} throw exception
      */
-    private static final int PREVIEW_WIDTH = 1920;
+    public static final int PREVIEW_WIDTH = 1920;
     /**
      * preview resolution(height)
      * if your camera does not support specific resolution and mode,
      * {@link UVCCamera#setPreviewSize(int, int, int)} throw exception
      */
-    private static final int PREVIEW_HEIGHT = 1080;
+    public static final int PREVIEW_HEIGHT = 1080;
     /**
      * preview mode
      * if your camera does not support specific resolution and mode,
@@ -93,6 +93,10 @@ class CameraUvc extends CameraViewImpl {
      */
     private UVCCameraTextureView mUVCCameraView;
 
+    // --- Slip tracking integration ---
+    private com.serenegiant.usb.IFrameCallback mTrackingFrameCallback;
+    private boolean mTrackingPending = false;
+
     private ThemedReactContext mContext;
 
     private final UVCCameraHandler.CameraCallback mCameraDeviceCallback
@@ -111,6 +115,14 @@ class CameraUvc extends CameraViewImpl {
             }
             mCallback.onCameraOpened();
             startCaptureSession();
+            if (mTrackingPending && mTrackingFrameCallback != null && mCameraHandler != null) {
+                mTrackingPending = false;
+                try {
+                    mCameraHandler.setExternalFrameCallback(mTrackingFrameCallback, com.serenegiant.usb.UVCCamera.PIXEL_FORMAT_NV21);
+                } catch (final Throwable t) {
+                    android.util.Log.w("AMPA", "onOpen: deferred tracking-frame registration failed", t);
+                }
+            }
         }
         @Override
         public void onClose(){
@@ -415,6 +427,13 @@ class CameraUvc extends CameraViewImpl {
 
     @Override
     void stop() {
+        if (mCameraHandler != null) {
+            try {
+                mCameraHandler.setExternalFrameCallback(null, 0);
+            } catch (final Throwable ignored) {
+            }
+        }
+        mTrackingPending = false;
         if (mCameraHandler != null) {
             if (mIsRecording) {
                 mCameraHandler.stopRecording();
@@ -762,5 +781,36 @@ class CameraUvc extends CameraViewImpl {
     private void stopMediaRecorder() {
         mIsRecording = false;
         mCameraHandler.stopRecording();
+    }
+
+    /**
+     * Install or replace the frame callback used by the slip tracker.
+     * If the camera isn't open yet, the registration is deferred until {@code onOpen}.
+     */
+    public void enableTrackingFrames(com.serenegiant.usb.IFrameCallback callback) {
+        mTrackingFrameCallback = callback;
+        if (mCameraHandler != null && mCameraHandler.isOpened()) {
+            try {
+                mCameraHandler.setExternalFrameCallback(callback, com.serenegiant.usb.UVCCamera.PIXEL_FORMAT_NV21);
+            } catch (final IllegalArgumentException e) {
+                android.util.Log.w("AMPA", "enableTrackingFrames: device does not support NV21 frames", e);
+            } catch (final Throwable t) {
+                android.util.Log.w("AMPA", "enableTrackingFrames: failed", t);
+            }
+        } else {
+            mTrackingPending = true;
+        }
+    }
+
+    public void disableTrackingFrames() {
+        mTrackingFrameCallback = null;
+        mTrackingPending = false;
+        if (mCameraHandler != null) {
+            try {
+                mCameraHandler.setExternalFrameCallback(null, 0);
+            } catch (final Throwable t) {
+                android.util.Log.w("AMPA", "disableTrackingFrames: failed", t);
+            }
+        }
     }
 }

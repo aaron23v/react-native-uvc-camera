@@ -23,7 +23,7 @@ android {
   buildToolsVersion rootProject.hasProperty('buildToolsVersion') ? rootProject.buildToolsVersion : DEFAULT_BUILD_TOOLS_VERSION
 
   defaultConfig {
-    minSdkVersion 16
+    minSdkVersion 21
     targetSdkVersion rootProject.hasProperty('targetSdkVersion') ? rootProject.targetSdkVersion : DEFAULT_TARGET_SDK_VERSION
 
     versionCode 2
@@ -74,6 +74,8 @@ dependencies {
   implementation "androidx.exifinterface:exifinterface:$supportLibVersion"
   implementation "androidx.annotation:annotation:$supportLibVersion"
   implementation "androidx.legacy:legacy-support-v4:$supportLibVersion"
+
+  implementation 'org.opencv:opencv:4.13.0'
 
   implementation project(':libuvccamera')
   implementation project(':usbCameraCommon')

@@ -330,6 +330,15 @@ public class CameraView extends FrameLayout {
     }
 
     /**
+     * Returns the current camera implementation. In this library it's always a
+     * {@code CameraUvc} instance, but the abstraction is preserved for symmetry
+     * with the upstream code.
+     */
+    public CameraViewImpl getImpl() {
+        return mImpl;
+    }
+
+    /**
      * Sets the camera rotation.
      *
      * @param displayRotation The camera rotation. Can be 0, 90, 180, or 270.
