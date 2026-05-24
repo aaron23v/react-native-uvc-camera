@@ -297,6 +297,8 @@ export default class Camera extends React.Component<PropsType, StateType> {
   };
 
   _onTrackingFrame = ({ nativeEvent }: EventCallbackArgumentsType) => {
+    // eslint-disable-next-line no-console
+    console.log('[SlipTracker]', nativeEvent);
     if (this.props.onTrackingFrame) {
       this.props.onTrackingFrame(nativeEvent);
     }

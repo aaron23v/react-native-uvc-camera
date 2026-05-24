@@ -49,13 +49,23 @@ public final class RNSlipTracker {
     private String lastEmittedState = SlipTrackerEvent.STATE_IDLE;
     private long lastEmitNanos = 0L;
 
+    // Debug counters (worker-thread reads; submitFrame writes 'submitted'/'dropped' from UVC thread).
+    private final java.util.concurrent.atomic.AtomicLong submittedFrames = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong droppedFrames = new java.util.concurrent.atomic.AtomicLong();
+    private long processedFrames = 0L;
+    private long sumLatencyNanos = 0L;
+
     public RNSlipTracker(Listener listener) {
         this.listener = listener;
     }
 
     /** Idempotent. Called on UI thread. */
     public synchronized void start() {
-        if (thread != null) return;
+        if (thread != null) {
+            SlipTrackerDebug.d("start: already running, ignored");
+            return;
+        }
+        SlipTrackerDebug.i("start: spinning up tracker thread");
         HandlerThread t = new HandlerThread("SlipTrackerThread", Process.THREAD_PRIORITY_BACKGROUND);
         t.start();
         Handler h = new Handler(t.getLooper());
@@ -70,6 +80,9 @@ public final class RNSlipTracker {
         Handler h = handler;
         thread = null;
         handler = null;
+        SlipTrackerDebug.i("stop: submitted=" + submittedFrames.get()
+                + " dropped=" + droppedFrames.get()
+                + " processed=" + processedFrames);
         if (h != null) {
             h.removeCallbacksAndMessages(null);
             h.post(this::teardownOnThread);
@@ -97,7 +110,11 @@ public final class RNSlipTracker {
     public void submitFrame(ByteBuffer nv21, int width, int height) {
         Handler h = handler;
         if (h == null) return;
-        if (!busy.compareAndSet(false, true)) return;
+        if (!busy.compareAndSet(false, true)) {
+            droppedFrames.incrementAndGet();
+            return;
+        }
+        submittedFrames.incrementAndGet();
 
         final int ySize = width * height;
         if (ySize <= 0) {
@@ -138,14 +155,22 @@ public final class RNSlipTracker {
     /** Capture the most recent processed frame as the new reference. */
     public void setReference() {
         Handler h = handler;
-        if (h == null) return;
+        if (h == null) {
+            SlipTrackerDebug.w("setReference ignored: tracker not started");
+            return;
+        }
+        SlipTrackerDebug.i("setReference requested");
         h.post(this::setReferenceOnThread);
     }
 
     /** Clear the reference; tracker returns to idle. */
     public void reset() {
         Handler h = handler;
-        if (h == null) return;
+        if (h == null) {
+            SlipTrackerDebug.w("reset ignored: tracker not started");
+            return;
+        }
+        SlipTrackerDebug.i("reset requested");
         h.post(this::resetOnThread);
     }
 
@@ -158,6 +183,7 @@ public final class RNSlipTracker {
             openCvUsable = false;
             Log.w(TAG, "OpenCV init threw", t);
         }
+        SlipTrackerDebug.i("initOnThread: openCvUsable=" + openCvUsable);
         if (!openCvUsable) {
             emit(SlipTrackerEvent.STATE_IDLE, 0, 1.0, "OpenCV failed to initialize");
             return;
@@ -166,9 +192,14 @@ public final class RNSlipTracker {
         userWantsReference = false;
         lastEmittedState = SlipTrackerEvent.STATE_IDLE;
         lastEmitNanos = 0L;
+        processedFrames = 0L;
+        sumLatencyNanos = 0L;
+        submittedFrames.set(0L);
+        droppedFrames.set(0L);
     }
 
     private void teardownOnThread() {
+        SlipTrackerDebug.i("teardownOnThread");
         if (grayRaw != null) {
             grayRaw.release();
             grayRaw = null;
@@ -179,8 +210,12 @@ public final class RNSlipTracker {
     }
 
     private void setReferenceOnThread() {
-        if (tracker == null || !openCvUsable) return;
+        if (tracker == null || !openCvUsable) {
+            SlipTrackerDebug.w("setReferenceOnThread: tracker=" + (tracker != null) + " openCV=" + openCvUsable);
+            return;
+        }
         if (tracker.getLastGrayForReference().empty()) {
+            SlipTrackerDebug.d("setReferenceOnThread: no frame yet, emitting idle");
             emit(SlipTrackerEvent.STATE_IDLE, 0, tracker.last_scale_est, "Waiting for first frame");
             return;
         }
@@ -188,6 +223,7 @@ public final class RNSlipTracker {
         userWantsReference = true;
         lastEmittedState = SlipTrackerEvent.STATE_TRACKING;
         lastEmitNanos = System.nanoTime();
+        SlipTrackerDebug.i("setReferenceOnThread: reference captured, status=" + tracker.last_status_message);
         listener.onTrackingEvent(new SlipTrackerEvent(
                 SlipTrackerEvent.STATE_TRACKING, 0, tracker.last_scale_est, tracker.last_status_message));
     }
@@ -198,6 +234,7 @@ public final class RNSlipTracker {
         tracker.resetTrackingManual();
         lastEmittedState = SlipTrackerEvent.STATE_IDLE;
         lastEmitNanos = System.nanoTime();
+        SlipTrackerDebug.i("resetOnThread: tracker cleared, status=" + tracker.last_status_message);
         listener.onTrackingEvent(new SlipTrackerEvent(
                 SlipTrackerEvent.STATE_IDLE, 0, tracker.last_scale_est, tracker.last_status_message));
     }
@@ -205,18 +242,42 @@ public final class RNSlipTracker {
     private void processFrame(int width, int height) {
         if (tracker == null || !openCvUsable) return;
         if (grayRaw == null || grayRaw.rows() != height || grayRaw.cols() != width) {
+            SlipTrackerDebug.d("processFrame: (re)allocating grayRaw " + width + "x" + height);
             if (grayRaw != null) grayRaw.release();
             grayRaw = new Mat(height, width, CvType.CV_8UC1);
         }
         grayRaw.put(0, 0, yPlane);
 
+        long startNanos = System.nanoTime();
         Trial32Tracker.FrameState fs = tracker.process(grayRaw);
+        long latencyNanos = System.nanoTime() - startNanos;
+        processedFrames++;
+        sumLatencyNanos += latencyNanos;
+
         String state = classify(fs);
+
+        if (processedFrames % SlipTrackerDebug.LOG_EVERY_N_FRAMES == 0) {
+            double avgMs = (sumLatencyNanos / SlipTrackerDebug.LOG_EVERY_N_FRAMES) / 1_000_000.0;
+            SlipTrackerDebug.d("frame#" + processedFrames
+                    + " state=" + state
+                    + " dist=" + fs.distance
+                    + " scale=" + String.format("%.3f", fs.last_scale_est)
+                    + " avgMs=" + String.format("%.1f", avgMs)
+                    + " submitted=" + submittedFrames.get()
+                    + " dropped=" + droppedFrames.get()
+                    + (fs.status_message != null ? " status=\"" + fs.status_message + "\"" : ""));
+            sumLatencyNanos = 0L;
+        }
 
         long now = System.nanoTime();
         boolean changed = !state.equals(lastEmittedState);
         boolean heartbeat = now - lastEmitNanos >= HEARTBEAT_NANOS;
         if (changed || heartbeat) {
+            if (changed) {
+                SlipTrackerDebug.i("state transition " + lastEmittedState + " -> " + state
+                        + " (dist=" + fs.distance + " scale=" + String.format("%.3f", fs.last_scale_est)
+                        + (fs.status_message != null ? " status=\"" + fs.status_message + "\"" : "") + ")");
+            }
             listener.onTrackingEvent(new SlipTrackerEvent(state, fs.distance, fs.last_scale_est, fs.status_message));
             lastEmittedState = state;
             lastEmitNanos = now;

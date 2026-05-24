@@ -257,6 +257,14 @@ public final class Trial32Tracker {
     }
 
     public void reset_tracking(String reason) {
+        SlipTrackerDebug.i("reset_tracking: " + reason
+                + " (last_distance=" + last_distance
+                + " last_scale_est=" + String.format("%.3f", last_scale_est)
+                + " feature_loss=" + feature_loss_counter
+                + " low_entropy=" + low_entropy_counter
+                + " scale_outlier=" + scale_outlier_counter
+                + " distance_exceed=" + distance_exceed_counter
+                + " lost=" + lost_counter + ")");
         if (reference_frame != null) {
             reference_frame.release();
         }
