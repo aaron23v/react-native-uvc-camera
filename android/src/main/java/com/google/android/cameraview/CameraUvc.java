@@ -46,7 +46,7 @@ import java.util.Set;
 
 @SuppressWarnings("MissingPermission")
 @TargetApi(21)
-class CameraUvc extends CameraViewImpl {
+public class CameraUvc extends CameraViewImpl {
 
     private static final String TAG = "CameraUvc";
 

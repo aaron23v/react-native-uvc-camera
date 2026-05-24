@@ -24,7 +24,7 @@ import android.graphics.SurfaceTexture;
 import java.nio.ByteBuffer;
 import java.util.Set;
 
-abstract class CameraViewImpl {
+public abstract class CameraViewImpl {
 
     protected final Callback mCallback;
 
