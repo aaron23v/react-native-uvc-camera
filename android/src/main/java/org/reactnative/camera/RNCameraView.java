@@ -78,9 +78,20 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   @androidx.annotation.Nullable
   private RNSlipTracker mSlipTracker;
   private boolean mTrackingEnabled = false;
+  private long mTrackingNativeFrameCount = 0L;
   private final IFrameCallback mTrackingFrameCallback = new IFrameCallback() {
       @Override
       public void onFrame(final java.nio.ByteBuffer frame) {
+          mTrackingNativeFrameCount++;
+          if (mTrackingNativeFrameCount == 1
+                  || mTrackingNativeFrameCount == 5
+                  || mTrackingNativeFrameCount % 60 == 0) {
+              org.reactnative.sliptracker.SlipTrackerDebug.i(
+                  "mTrackingFrameCallback.onFrame #" + mTrackingNativeFrameCount
+                  + " size=" + (frame != null ? frame.remaining() : -1)
+                  + " trackerNull=" + (mSlipTracker == null)
+                  + " accepts=" + (mSlipTracker != null && mSlipTracker.acceptsFrames()));
+          }
           final RNSlipTracker t = mSlipTracker;
           if (t == null || !t.acceptsFrames()) return;
           t.submitFrame(frame, CameraUvc.PREVIEW_WIDTH, CameraUvc.PREVIEW_HEIGHT);
