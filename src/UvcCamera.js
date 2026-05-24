@@ -139,7 +139,46 @@ const CameraManager: Object = NativeModules.UvcCameraManager ||
 
 const EventThrottleMs = 500;
 
+const SLIP_DISTANCE_THRESHOLD = 260;
+const SLIP_COLOR_SAFE = [0x2A, 0x54, 0x7E];     // #2A547E
+const SLIP_COLOR_WARNING = [0xFF, 0xAF, 0x03];  // #FFAF03
+const SLIP_COLOR_CRITICAL = [0xFF, 0x00, 0x00]; // #FF0000
+
+function lerpChannel(a: number, b: number, t: number): number {
+  return Math.round(a + (b - a) * t);
+}
+
+function rgbToHex(rgb: number[]): string {
+  return '#' + rgb.map(c => c.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
 export default class Camera extends React.Component<PropsType, StateType> {
+  /**
+   * Interpolated slip-tracker color for a given distance (pixels).
+   * 0..50% threshold lerps SAFE → WARNING; 50..80% lerps WARNING → CRITICAL;
+   * ≥80% is clamped to CRITICAL.
+   */
+  static slipColorForDistance(distance: number, threshold: number = SLIP_DISTANCE_THRESHOLD): string {
+    if (!(threshold > 0) || !(distance >= 0)) return rgbToHex(SLIP_COLOR_SAFE);
+    const ratio = distance / threshold;
+    if (ratio <= 0) return rgbToHex(SLIP_COLOR_SAFE);
+    if (ratio >= 0.8) return rgbToHex(SLIP_COLOR_CRITICAL);
+    if (ratio < 0.5) {
+      const t = ratio / 0.5;
+      return rgbToHex([
+        lerpChannel(SLIP_COLOR_SAFE[0], SLIP_COLOR_WARNING[0], t),
+        lerpChannel(SLIP_COLOR_SAFE[1], SLIP_COLOR_WARNING[1], t),
+        lerpChannel(SLIP_COLOR_SAFE[2], SLIP_COLOR_WARNING[2], t),
+      ]);
+    }
+    const t = (ratio - 0.5) / 0.3;
+    return rgbToHex([
+      lerpChannel(SLIP_COLOR_WARNING[0], SLIP_COLOR_CRITICAL[0], t),
+      lerpChannel(SLIP_COLOR_WARNING[1], SLIP_COLOR_CRITICAL[1], t),
+      lerpChannel(SLIP_COLOR_WARNING[2], SLIP_COLOR_CRITICAL[2], t),
+    ]);
+  }
+
   static Constants = {
     Type: CameraManager.Type,
     FlashMode: CameraManager.FlashMode,
