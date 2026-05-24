@@ -83,20 +83,38 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
       @Override
       public void onFrame(final java.nio.ByteBuffer frame) {
           mTrackingNativeFrameCount++;
+          final RNSlipTracker t = mSlipTracker;
+          if (t == null || !t.acceptsFrames()) return;
+          final int w = getActualPreviewWidth();
+          final int h = getActualPreviewHeight();
           if (mTrackingNativeFrameCount == 1
                   || mTrackingNativeFrameCount == 5
                   || mTrackingNativeFrameCount % 60 == 0) {
               org.reactnative.sliptracker.SlipTrackerDebug.i(
                   "mTrackingFrameCallback.onFrame #" + mTrackingNativeFrameCount
-                  + " size=" + (frame != null ? frame.remaining() : -1)
-                  + " trackerNull=" + (mSlipTracker == null)
-                  + " accepts=" + (mSlipTracker != null && mSlipTracker.acceptsFrames()));
+                  + " bufSize=" + (frame != null ? frame.remaining() : -1)
+                  + " dims=" + w + "x" + h);
           }
-          final RNSlipTracker t = mSlipTracker;
-          if (t == null || !t.acceptsFrames()) return;
-          t.submitFrame(frame, CameraUvc.PREVIEW_WIDTH, CameraUvc.PREVIEW_HEIGHT);
+          if (w <= 0 || h <= 0) return;
+          t.submitFrame(frame, w, h);
       }
   };
+
+  private int getActualPreviewWidth() {
+      final com.google.android.cameraview.CameraViewImpl impl = getImpl();
+      if (impl instanceof CameraUvc) {
+          return ((CameraUvc) impl).getActualPreviewWidth();
+      }
+      return CameraUvc.PREVIEW_WIDTH;
+  }
+
+  private int getActualPreviewHeight() {
+      final com.google.android.cameraview.CameraViewImpl impl = getImpl();
+      if (impl instanceof CameraUvc) {
+          return ((CameraUvc) impl).getActualPreviewHeight();
+      }
+      return CameraUvc.PREVIEW_HEIGHT;
+  }
 
   public RNCameraView(ThemedReactContext themedReactContext) {
     super(themedReactContext, true);

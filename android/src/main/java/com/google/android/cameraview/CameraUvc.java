@@ -813,4 +813,22 @@ public class CameraUvc extends CameraViewImpl {
             }
         }
     }
+
+    /** Actual negotiated preview width. Falls back to {@link #PREVIEW_WIDTH} if unknown. */
+    public int getActualPreviewWidth() {
+        if (mCameraHandler != null) {
+            int w = mCameraHandler.getActualWidth();
+            if (w > 0) return w;
+        }
+        return PREVIEW_WIDTH;
+    }
+
+    /** Actual negotiated preview height. Falls back to {@link #PREVIEW_HEIGHT} if unknown. */
+    public int getActualPreviewHeight() {
+        if (mCameraHandler != null) {
+            int h = mCameraHandler.getActualHeight();
+            if (h > 0) return h;
+        }
+        return PREVIEW_HEIGHT;
+    }
 }
