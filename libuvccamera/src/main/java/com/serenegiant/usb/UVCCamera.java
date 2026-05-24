@@ -279,6 +279,16 @@ public class UVCCamera {
 		}
 		return result;
 	}
+
+	/** Most recent width passed to {@link #setPreviewSize}; this is the negotiated size since callers feed it through {@code getNearestSize}. */
+	public int getCurrentWidth() {
+		return mCurrentWidth;
+	}
+
+	/** Most recent height passed to {@link #setPreviewSize}. */
+	public int getCurrentHeight() {
+		return mCurrentHeight;
+	}
 	
 	/**
 	 * Set preview size and preview mode

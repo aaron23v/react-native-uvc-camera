@@ -448,9 +448,6 @@ abstract class AbstractUVCCameraHandler extends Handler {
 		private final int mEncoderType;
 		private final Set<CameraCallback> mCallbacks = new CopyOnWriteArraySet<CameraCallback>();
 		private int mWidth, mHeight, mPreviewMode;
-		// Actual negotiated preview dims (may differ from requested if camera doesn't
-		// support the exact size). Updated in handleStartPreview after getNearestSize.
-		private int mActualWidth, mActualHeight;
 		private float mBandwidthFactor;
 		private boolean mIsPreviewing;
 		private boolean mIsRecording;
@@ -534,13 +531,13 @@ abstract class AbstractUVCCameraHandler extends Handler {
 
 		public int getActualWidth() {
 			synchronized (mSync) {
-				return mActualWidth > 0 ? mActualWidth : mWidth;
+				return mUVCCamera != null ? mUVCCamera.getCurrentWidth() : mWidth;
 			}
 		}
 
 		public int getActualHeight() {
 			synchronized (mSync) {
-				return mActualHeight > 0 ? mActualHeight : mHeight;
+				return mUVCCamera != null ? mUVCCamera.getCurrentHeight() : mHeight;
 			}
 		}
 
@@ -659,10 +656,8 @@ abstract class AbstractUVCCameraHandler extends Handler {
 				Log.d("AMPA", "handleStartPreview: MJPEG nearestSize=" + (nearestSize != null ? nearestSize.width + "x" + nearestSize.height : "null") + " requested=" + mWidth + "x" + mHeight);
 				if (nearestSize == null) {
 					mUVCCamera.setPreviewSize(mWidth, mHeight, 1, 31, UVCCamera.FRAME_FORMAT_MJPEG, mBandwidthFactor);
-					mActualWidth = mWidth; mActualHeight = mHeight;
 				} else {
 					mUVCCamera.setPreviewSize(nearestSize.width, nearestSize.height, 1, 31, UVCCamera.FRAME_FORMAT_MJPEG, mBandwidthFactor);
-					mActualWidth = nearestSize.width; mActualHeight = nearestSize.height;
 				}
 			} catch (final IllegalArgumentException e) {
 				Log.d("AMPA", "handleStartPreview: MJPEG failed, falling back to YUYV: " + e.getMessage());
@@ -671,10 +666,8 @@ abstract class AbstractUVCCameraHandler extends Handler {
 					Log.d("AMPA", "handleStartPreview: YUYV nearestSize=" + (nearestSize != null ? nearestSize.width + "x" + nearestSize.height : "null"));
 					if (nearestSize == null) {
 						mUVCCamera.setPreviewSize(mWidth, mHeight, 1, 31, UVCCamera.FRAME_FORMAT_YUYV, mBandwidthFactor);
-						mActualWidth = mWidth; mActualHeight = mHeight;
 					} else {
 						mUVCCamera.setPreviewSize(nearestSize.width, nearestSize.height, 1, 31, UVCCamera.FRAME_FORMAT_YUYV, mBandwidthFactor);
-						mActualWidth = nearestSize.width; mActualHeight = nearestSize.height;
 					}
 				} catch (final IllegalArgumentException e1) {
 					Log.e("AMPA", "handleStartPreview: YUYV also failed: " + e1.getMessage());
