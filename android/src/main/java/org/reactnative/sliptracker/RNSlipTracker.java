@@ -66,7 +66,7 @@ public final class RNSlipTracker {
             return;
         }
         SlipTrackerDebug.i("start: spinning up tracker thread");
-        HandlerThread t = new HandlerThread("SlipTrackerThread", Process.THREAD_PRIORITY_BACKGROUND);
+        HandlerThread t = new HandlerThread("SlipTrackerThread", Process.THREAD_PRIORITY_FOREGROUND);
         t.start();
         Handler h = new Handler(t.getLooper());
         thread = t;
