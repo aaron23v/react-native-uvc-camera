@@ -261,6 +261,7 @@ public final class RNSlipTracker {
             SlipTrackerDebug.d("frame#" + processedFrames
                     + " state=" + state
                     + " dist=" + fs.distance
+                    + " instab=" + String.format("%.2f", fs.instability)
                     + " scale=" + String.format("%.3f", fs.last_scale_est)
                     + " avgMs=" + String.format("%.1f", avgMs)
                     + " submitted=" + submittedFrames.get()
@@ -290,9 +291,10 @@ public final class RNSlipTracker {
         if (!referenceSet) {
             return userWantsReference ? SlipTrackerEvent.STATE_LOST : SlipTrackerEvent.STATE_IDLE;
         }
-        double ratio = (double) fs.distance / (double) Trial32Tracker.DISTANCE_THRESHOLD;
-        if (ratio < 0.5) return SlipTrackerEvent.STATE_TRACKING;
-        if (ratio < 0.8) return SlipTrackerEvent.STATE_WARNING;
+        double distRatio = (double) fs.distance / (double) Trial32Tracker.DISTANCE_THRESHOLD;
+        double score = Math.max(distRatio, fs.instability);
+        if (score < 0.5) return SlipTrackerEvent.STATE_TRACKING;
+        if (score < 0.8) return SlipTrackerEvent.STATE_WARNING;
         return SlipTrackerEvent.STATE_CRITICAL;
     }
 

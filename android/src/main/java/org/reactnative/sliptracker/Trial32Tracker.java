@@ -145,14 +145,20 @@ public final class Trial32Tracker {
         public final double last_scale_est;
         public final int overlay_counter;
         public final String status_message;
+        // Worst counter-to-limit ratio across lost / scale-outlier / feature-loss /
+        // low-entropy. Climbs frame-by-frame as the tracker drifts toward an
+        // auto-reset; lets the classifier surface warning/critical before the
+        // reference is dropped.
+        public final double instability;
 
-        public FrameState(int[] ref_center, int[] live_pt, int distance, double last_scale_est, int overlay_counter, String status_message) {
+        public FrameState(int[] ref_center, int[] live_pt, int distance, double last_scale_est, int overlay_counter, String status_message, double instability) {
             this.ref_center = ref_center;
             this.live_pt = live_pt;
             this.distance = distance;
             this.last_scale_est = last_scale_est;
             this.overlay_counter = overlay_counter;
             this.status_message = status_message;
+            this.instability = instability;
         }
     }
 
@@ -254,6 +260,25 @@ public final class Trial32Tracker {
 
     public void resetTrackingManual() {
         reset_tracking("Manual reset.");
+    }
+
+    // Max of per-counter progress toward its auto-reset limit, clamped to [0, 1].
+    // Used to surface drift to the UI before the tracker gives up on the reference.
+    private double computeInstability(boolean near_center, boolean tracking_feature_rich) {
+        int center_grace = near_center ? CENTER_GRACE_FRAMES : 0;
+        int lost_limit = (tracking_feature_rich ? LOST_FRAMES_MAX : LOST_FRAMES_MAX_POOR) + center_grace;
+        int feature_loss_limit = FEATURE_LOSS_FRAMES + center_grace;
+        int low_entropy_limit = LOW_ENTROPY_FRAMES + center_grace;
+        int scale_outlier_limit = SCALE_OUTLIER_FRAMES + center_grace;
+
+        double r_lost = (double) lost_counter / Math.max(lost_limit, 1);
+        double r_scale = (double) scale_outlier_counter / Math.max(scale_outlier_limit, 1);
+        double r_feature = (double) feature_loss_counter / Math.max(feature_loss_limit, 1);
+        double r_entropy = (double) low_entropy_counter / Math.max(low_entropy_limit, 1);
+        double max = Math.max(Math.max(r_lost, r_scale), Math.max(r_feature, r_entropy));
+        if (max < 0.0) return 0.0;
+        if (max > 1.0) return 1.0;
+        return max;
     }
 
     public void reset_tracking(String reason) {
@@ -778,6 +803,7 @@ public final class Trial32Tracker {
         Mat desc = new Mat();
 
         int distance = 0;
+        double frame_instability = 0.0;
 
         if (reference_frame != null) {
             orb.detectAndCompute(gray, new Mat(), kp_m, desc);
@@ -805,7 +831,7 @@ public final class Trial32Tracker {
                     reset_tracking("Auto-reset (low feature density / axial motion)");
                     kp_m.release();
                     desc.release();
-                    return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message);
+                    return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
                 }
 
                 double entropy_val = compute_entropy(gray);
@@ -820,7 +846,7 @@ public final class Trial32Tracker {
                     reset_tracking("Auto-reset (low texture entropy / axial motion)");
                     kp_m.release();
                     desc.release();
-                    return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message);
+                    return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
                 }
             } else {
                 feature_loss_counter = 0;
@@ -902,7 +928,7 @@ public final class Trial32Tracker {
                                         H.release();
                                         kp_m.release();
                                         desc.release();
-                                        return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message);
+                                        return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
                                     }
                                 } else {
                                     scale_outlier_counter = 0;
@@ -1019,7 +1045,7 @@ public final class Trial32Tracker {
                     reset_tracking("Auto-reset (large sudden movement)");
                     kp_m.release();
                     desc.release();
-                    return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message);
+                    return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
                 }
 
                 lost_counter += 1;
@@ -1028,7 +1054,7 @@ public final class Trial32Tracker {
                     reset_tracking("Auto-reset (lost consensus)");
                     kp_m.release();
                     desc.release();
-                    return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message);
+                    return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
                 }
             } else {
                 lost_counter = 0;
@@ -1055,7 +1081,7 @@ public final class Trial32Tracker {
                         reset_tracking("Auto-reset (large sudden movement)");
                         kp_m.release();
                         desc.release();
-                        return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message);
+                        return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
                     }
 
                     int distance_limit = DISTANCE_CONFIRM_FRAMES + (near_center ? CENTER_GRACE_FRAMES : 0);
@@ -1064,12 +1090,14 @@ public final class Trial32Tracker {
                         reset_tracking("Auto-reset (distance threshold)");
                         kp_m.release();
                         desc.release();
-                        return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message);
+                        return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
                     }
                 } else {
                     distance_exceed_counter = 0;
                 }
             }
+
+            frame_instability = computeInstability(near_center, tracking_feature_rich);
         }
 
         if (overlay_counter > 0) {
@@ -1079,6 +1107,6 @@ public final class Trial32Tracker {
         kp_m.release();
         desc.release();
 
-        return new FrameState(ref_center, live_pt, distance, last_scale_est, overlay_counter, last_status_message);
+        return new FrameState(ref_center, live_pt, distance, last_scale_est, overlay_counter, last_status_message, frame_instability);
     }
 }
