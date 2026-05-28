@@ -1049,7 +1049,11 @@ public final class Trial32Tracker {
                 }
 
                 lost_counter += 1;
-                int lost_limit = lost_frames_max + (near_center ? CENTER_GRACE_FRAMES : 0);
+                // Near center, last_distance is stale (~0) so a sudden slip that
+                // outruns the tracker looks "near center" on its first lost frame.
+                // Use a short fixed limit there instead of adding center grace, so
+                // a real slip isn't masked by frames meant to absorb axial jitter.
+                int lost_limit = near_center ? 2 : lost_frames_max;
                 if (lost_counter >= lost_limit) {
                     reset_tracking("Auto-reset (lost consensus)");
                     kp_m.release();
@@ -1084,7 +1088,10 @@ public final class Trial32Tracker {
                         return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
                     }
 
-                    int distance_limit = DISTANCE_CONFIRM_FRAMES + (near_center ? CENTER_GRACE_FRAMES : 0);
+                    // No center grace here: fast movement already reset above, so
+                    // anything reaching this point is a sustained over-threshold slip.
+                    // Adding grace near center only delays confirming a real slip.
+                    int distance_limit = DISTANCE_CONFIRM_FRAMES;
                     distance_exceed_counter += 1;
                     if (distance_exceed_counter >= distance_limit) {
                         reset_tracking("Auto-reset (distance threshold)");
