@@ -9,6 +9,8 @@ import androidx.annotation.Nullable;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.opencv.android.OpenCVLoader;
 import org.opencv.core.CvType;
@@ -28,30 +30,55 @@ public final class RNSlipTracker {
     private static final String TAG = "RNSlipTracker";
     private static final long HEARTBEAT_NANOS = 200_000_000L; // 5 Hz
     private static final long JOIN_TIMEOUT_MS = 500L;
+    // Frames older than this when the worker pulls them are skipped instead of
+    // processed — prevents the tracker from "catching up" through stale data
+    // after a per-frame latency spike (e.g. the 100–175 ms post-reset blip).
+    private static final long FRAME_AGE_THRESHOLD_NS = 150_000_000L; // 150 ms
 
     public interface Listener {
         /** Called on the tracker worker thread. */
         void onTrackingEvent(SlipTrackerEvent event);
     }
 
+    private static final class FrameItem {
+        final byte[] yPlane;
+        final int width;
+        final int height;
+        final long timestampNs;
+
+        FrameItem(byte[] yPlane, int width, int height, long timestampNs) {
+            this.yPlane = yPlane;
+            this.width = width;
+            this.height = height;
+            this.timestampNs = timestampNs;
+        }
+    }
+
     private final Listener listener;
 
     @Nullable private HandlerThread thread;
     @Nullable private Handler handler;
-    private final AtomicBoolean busy = new AtomicBoolean(false);
+    // Latest-frame-wins queue. submitFrame swaps a new FrameItem in and lets the
+    // displaced one fall out of scope (counted as 'dropped'). The worker drains
+    // it with getAndSet(null).
+    private final AtomicReference<FrameItem> latestFrame = new AtomicReference<>(null);
+    // True while a drainer Runnable is in flight or queued. Ensures at most one
+    // drainer at a time without rejecting incoming frames.
+    private final AtomicBoolean drainerScheduled = new AtomicBoolean(false);
 
     // Worker-thread only fields:
     @Nullable private Trial32Tracker tracker;
     @Nullable private Mat grayRaw;
-    private byte[] yPlane = new byte[0];
     private boolean openCvUsable = false;
     private boolean userWantsReference = false;
     private String lastEmittedState = SlipTrackerEvent.STATE_IDLE;
     private long lastEmitNanos = 0L;
 
-    // Debug counters (worker-thread reads; submitFrame writes 'submitted'/'dropped' from UVC thread).
-    private final java.util.concurrent.atomic.AtomicLong submittedFrames = new java.util.concurrent.atomic.AtomicLong();
-    private final java.util.concurrent.atomic.AtomicLong droppedFrames = new java.util.concurrent.atomic.AtomicLong();
+    // Debug counters. submittedFrames + droppedFrames + skippedStaleFrames = total
+    // arrivals at submitFrame. processedFrames = how many actually ran through the tracker.
+    private final AtomicLong submittedFrames = new AtomicLong();
+    private final AtomicLong droppedFrames = new AtomicLong();
+    private final AtomicLong skippedStaleFrames = new AtomicLong();
     private long processedFrames = 0L;
     private long sumLatencyNanos = 0L;
 
@@ -82,6 +109,7 @@ public final class RNSlipTracker {
         handler = null;
         SlipTrackerDebug.i("stop: submitted=" + submittedFrames.get()
                 + " dropped=" + droppedFrames.get()
+                + " skipped=" + skippedStaleFrames.get()
                 + " processed=" + processedFrames);
         if (h != null) {
             h.removeCallbacksAndMessages(null);
@@ -95,60 +123,84 @@ public final class RNSlipTracker {
                 Thread.currentThread().interrupt();
             }
         }
-        busy.set(false);
+        latestFrame.set(null);
+        drainerScheduled.set(false);
     }
 
-    /** Cheap check from the UVC callback thread. */
+    /** Cheap check from the UVC callback thread — true whenever the tracker is running. */
     public boolean acceptsFrames() {
-        return handler != null && !busy.get();
+        return handler != null;
     }
 
     /**
-     * Copy the Y plane from the NV21 buffer and post to the worker.
-     * Drops the frame if the worker is still chewing on the previous one.
+     * Copy the Y plane out of the NV21 buffer into a fresh FrameItem and swap it
+     * into {@link #latestFrame}. The displaced FrameItem (if any) is counted as
+     * dropped — worker only ever sees the most recent frame. A drainer Runnable
+     * is posted to the worker thread iff one isn't already scheduled.
      */
     public void submitFrame(ByteBuffer nv21, int width, int height) {
         Handler h = handler;
         if (h == null) return;
-        if (!busy.compareAndSet(false, true)) {
-            droppedFrames.incrementAndGet();
-            return;
-        }
         submittedFrames.incrementAndGet();
 
         final int ySize = width * height;
-        if (ySize <= 0) {
-            busy.set(false);
-            return;
-        }
-        if (yPlane.length != ySize) {
-            yPlane = new byte[ySize];
-        }
+        if (ySize <= 0) return;
+
+        final byte[] yp = new byte[ySize];
         try {
             nv21.clear();
-            if (nv21.remaining() < ySize) {
-                busy.set(false);
-                return;
-            }
-            nv21.get(yPlane, 0, ySize);
+            if (nv21.remaining() < ySize) return;
+            nv21.get(yp, 0, ySize);
         } catch (Throwable t) {
-            busy.set(false);
             return;
         }
 
-        final int w = width;
-        final int hgt = height;
-        boolean posted = h.post(() -> {
-            try {
-                processFrame(w, hgt);
-            } catch (Throwable t) {
-                Log.w(TAG, "processFrame threw", t);
-            } finally {
-                busy.set(false);
+        FrameItem item = new FrameItem(yp, width, height, System.nanoTime());
+        FrameItem previous = latestFrame.getAndSet(item);
+        if (previous != null) {
+            droppedFrames.incrementAndGet();
+        }
+
+        if (drainerScheduled.compareAndSet(false, true)) {
+            if (!h.post(this::drainLatestFrame)) {
+                drainerScheduled.set(false);
             }
-        });
-        if (!posted) {
-            busy.set(false);
+        }
+    }
+
+    /**
+     * Drainer loop running on the worker thread. Processes the freshest frame,
+     * skips frames older than {@link #FRAME_AGE_THRESHOLD_NS}, and re-arms itself
+     * if a new frame arrived while the previous one was being processed.
+     */
+    private void drainLatestFrame() {
+        try {
+            while (true) {
+                FrameItem item = latestFrame.getAndSet(null);
+                if (item == null) break;
+
+                long ageNs = System.nanoTime() - item.timestampNs;
+                if (ageNs > FRAME_AGE_THRESHOLD_NS) {
+                    skippedStaleFrames.incrementAndGet();
+                    continue;
+                }
+                try {
+                    processFrame(item);
+                } catch (Throwable t) {
+                    Log.w(TAG, "processFrame threw", t);
+                }
+            }
+        } finally {
+            drainerScheduled.set(false);
+            // Catch the race where a frame landed between the drain-loop's null
+            // read and the flag clear. If so, re-arm.
+            Handler h = handler;
+            if (h != null && latestFrame.get() != null
+                    && drainerScheduled.compareAndSet(false, true)) {
+                if (!h.post(this::drainLatestFrame)) {
+                    drainerScheduled.set(false);
+                }
+            }
         }
     }
 
@@ -196,6 +248,7 @@ public final class RNSlipTracker {
         sumLatencyNanos = 0L;
         submittedFrames.set(0L);
         droppedFrames.set(0L);
+        skippedStaleFrames.set(0L);
     }
 
     private void teardownOnThread() {
@@ -204,7 +257,6 @@ public final class RNSlipTracker {
             grayRaw.release();
             grayRaw = null;
         }
-        yPlane = new byte[0];
         tracker = null;
         openCvUsable = false;
     }
@@ -239,14 +291,16 @@ public final class RNSlipTracker {
                 SlipTrackerEvent.STATE_IDLE, 0, tracker.last_scale_est, tracker.last_status_message));
     }
 
-    private void processFrame(int width, int height) {
+    private void processFrame(FrameItem item) {
         if (tracker == null || !openCvUsable) return;
+        int width = item.width;
+        int height = item.height;
         if (grayRaw == null || grayRaw.rows() != height || grayRaw.cols() != width) {
             SlipTrackerDebug.d("processFrame: (re)allocating grayRaw " + width + "x" + height);
             if (grayRaw != null) grayRaw.release();
             grayRaw = new Mat(height, width, CvType.CV_8UC1);
         }
-        grayRaw.put(0, 0, yPlane);
+        grayRaw.put(0, 0, item.yPlane);
 
         long startNanos = System.nanoTime();
         Trial32Tracker.FrameState fs = tracker.process(grayRaw);
@@ -266,6 +320,7 @@ public final class RNSlipTracker {
                     + " avgMs=" + String.format("%.1f", avgMs)
                     + " submitted=" + submittedFrames.get()
                     + " dropped=" + droppedFrames.get()
+                    + " skipped=" + skippedStaleFrames.get()
                     + (fs.status_message != null ? " status=\"" + fs.status_message + "\"" : ""));
             sumLatencyNanos = 0L;
         }
