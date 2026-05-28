@@ -115,14 +115,6 @@ public class CameraUvc extends CameraViewImpl {
             }
             mCallback.onCameraOpened();
             startCaptureSession();
-            if (mTrackingFrameCallback != null && mCameraHandler != null) {
-                mTrackingPending = false;
-                try {
-                    mCameraHandler.setExternalFrameCallback(mTrackingFrameCallback, com.serenegiant.usb.UVCCamera.PIXEL_FORMAT_NV21);
-                } catch (final Throwable t) {
-                    android.util.Log.w("AMPA", "onOpen: re-registering tracking frame callback on camera open failed", t);
-                }
-            }
         }
         @Override
         public void onClose(){
@@ -132,12 +124,18 @@ public class CameraUvc extends CameraViewImpl {
         @Override
         public void onStartPreview(){
             Log.d("AMPA", "callback onStartPreview: preview started");
-            // some USB camera will not return onPictureTaken and onVideoRecorded by uncomment some of bellow, test them by your own
-            // updateAutoFocus();
-            // updateFlash();
-            // updateFocusDepth();
-            // updateWhiteBalance();
-            // updateZoom();
+            // handleStartPreview installs mIFramePreviewCallback as the single
+            // UVCCamera frame-callback slot. Re-apply the external tracking
+            // callback after every preview start (initial open AND retry path)
+            // so slip tracking survives a handlePreviewRetry restart.
+            if (mTrackingFrameCallback != null && mCameraHandler != null) {
+                mTrackingPending = false;
+                try {
+                    mCameraHandler.setExternalFrameCallback(mTrackingFrameCallback, com.serenegiant.usb.UVCCamera.PIXEL_FORMAT_NV21);
+                } catch (final Throwable t) {
+                    android.util.Log.w("AMPA", "onStartPreview: re-registering tracking frame callback failed", t);
+                }
+            }
         }
         @Override
         public void onStopPreview(){}
