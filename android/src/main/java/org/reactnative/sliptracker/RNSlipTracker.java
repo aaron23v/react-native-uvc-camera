@@ -293,9 +293,24 @@ public final class RNSlipTracker {
         }
         double distRatio = (double) fs.distance / (double) Trial32Tracker.DISTANCE_THRESHOLD;
         double score = Math.max(distRatio, fs.instability);
-        if (score < 0.5) return SlipTrackerEvent.STATE_TRACKING;
-        if (score < 0.8) return SlipTrackerEvent.STATE_WARNING;
-        return SlipTrackerEvent.STATE_CRITICAL;
+
+        // Asymmetric hysteresis — enter at 0.5/0.8, exit at 0.3/0.6.
+        // Suppresses flapping at the 0.5 boundary (observed jitter band ~0.48-0.51)
+        // so a raised alarm doesn't drop back to green until the signal clearly recovers.
+        switch (lastEmittedState) {
+            case SlipTrackerEvent.STATE_CRITICAL:
+                if (score >= 0.6) return SlipTrackerEvent.STATE_CRITICAL;
+                if (score >= 0.3) return SlipTrackerEvent.STATE_WARNING;
+                return SlipTrackerEvent.STATE_TRACKING;
+            case SlipTrackerEvent.STATE_WARNING:
+                if (score >= 0.8) return SlipTrackerEvent.STATE_CRITICAL;
+                if (score >= 0.3) return SlipTrackerEvent.STATE_WARNING;
+                return SlipTrackerEvent.STATE_TRACKING;
+            default:
+                if (score >= 0.8) return SlipTrackerEvent.STATE_CRITICAL;
+                if (score >= 0.5) return SlipTrackerEvent.STATE_WARNING;
+                return SlipTrackerEvent.STATE_TRACKING;
+        }
     }
 
     private void emit(String state, int distance, double scale, @Nullable String statusMessage) {
