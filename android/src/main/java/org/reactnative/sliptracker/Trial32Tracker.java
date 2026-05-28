@@ -95,11 +95,11 @@ public final class Trial32Tracker {
     public static final double CONFIDENCE_STRONG = 0.75;
     public static final int CONSENSUS_DIST = 40;
     public static final int CONSENSUS_MIN_METHODS = 2;
-    public static final int LOST_FRAMES_MAX = 6;
+    public static final int LOST_FRAMES_MAX = 3;
     public static final double CONFIDENCE_MIN_POOR = 0.45;
     public static final double CONFIDENCE_STRONG_POOR = 0.60;
     public static final int CONSENSUS_MIN_METHODS_POOR = 1;
-    public static final int LOST_FRAMES_MAX_POOR = 10;
+    public static final int LOST_FRAMES_MAX_POOR = 6;
 
     // Optical flow quality threshold
     public static final double FLOW_ERR_MAX = 12.0;
