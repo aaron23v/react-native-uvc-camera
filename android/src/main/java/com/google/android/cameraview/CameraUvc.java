@@ -115,12 +115,12 @@ public class CameraUvc extends CameraViewImpl {
             }
             mCallback.onCameraOpened();
             startCaptureSession();
-            if (mTrackingPending && mTrackingFrameCallback != null && mCameraHandler != null) {
+            if (mTrackingFrameCallback != null && mCameraHandler != null) {
                 mTrackingPending = false;
                 try {
                     mCameraHandler.setExternalFrameCallback(mTrackingFrameCallback, com.serenegiant.usb.UVCCamera.PIXEL_FORMAT_NV21);
                 } catch (final Throwable t) {
-                    android.util.Log.w("AMPA", "onOpen: deferred tracking-frame registration failed", t);
+                    android.util.Log.w("AMPA", "onOpen: re-registering tracking frame callback on camera open failed", t);
                 }
             }
         }
