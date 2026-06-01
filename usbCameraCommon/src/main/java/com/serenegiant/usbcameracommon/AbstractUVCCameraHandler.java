@@ -856,11 +856,31 @@ abstract class AbstractUVCCameraHandler extends Handler {
 			mExternalFramePixelFormat = pixelFormat;
 			if (mUVCCamera != null && mMuxer == null) {
 				try {
-					mUVCCamera.setFrameCallback(callback, pixelFormat);
+					mUVCCamera.setFrameCallback(countingFrameCallback(callback), pixelFormat);
 				} catch (final Throwable t) {
 					Log.w(TAG_THREAD, "applyExternalFrameCallback: setFrameCallback failed", t);
 				}
 			}
+		}
+
+		/**
+		 * Wraps a frame callback so each delivered frame increments {@link #mFrameCount}.
+		 * The UVCCamera exposes a single frame-callback slot, so when an external consumer
+		 * (e.g. the slip tracker) owns it, the internal {@link #mIFramePreviewCallback} no
+		 * longer runs. Without this, the preview-liveness watchdog ({@link #handlePreviewRetry})
+		 * would see zero frames and trigger a spurious restart loop. Counting here keeps the
+		 * watchdog accurate regardless of which consumer currently holds the slot.
+		 */
+		private IFrameCallback countingFrameCallback(final IFrameCallback delegate) {
+			return new IFrameCallback() {
+				@Override
+				public void onFrame(final ByteBuffer frame) {
+					mFrameCount++;
+					if (delegate != null) {
+						delegate.onFrame(frame);
+					}
+				}
+			};
 		}
 
 		public void handleStopRecording() {
@@ -885,7 +905,7 @@ abstract class AbstractUVCCameraHandler extends Handler {
 				// Re-apply external (tracking) frame callback if one was registered.
 				if (mExternalFrameCallback != null && mUVCCamera != null) {
 					try {
-						mUVCCamera.setFrameCallback(mExternalFrameCallback, mExternalFramePixelFormat);
+						mUVCCamera.setFrameCallback(countingFrameCallback(mExternalFrameCallback), mExternalFramePixelFormat);
 					} catch (final Throwable t) {
 						Log.w(TAG_THREAD, "re-apply external frame callback failed", t);
 					}
