@@ -169,31 +169,36 @@ public final class RNSlipTracker {
     }
 
     /**
-     * Drainer loop running on the worker thread. Processes the freshest frame,
-     * skips frames older than {@link #FRAME_AGE_THRESHOLD_NS}, and re-arms itself
-     * if a new frame arrived while the previous one was being processed.
+     * Drainer running on the worker thread. Processes the single freshest frame,
+     * skips it if older than {@link #FRAME_AGE_THRESHOLD_NS}, then re-posts itself
+     * if another frame is waiting.
+     *
+     * Processing ONE frame per runnable (rather than looping until drained) yields
+     * the Handler between frames, so control runnables posted via {@code handler.post}
+     * (setReference / reset) cannot be starved when processFrame can't keep up with
+     * the frame rate. A single in-runnable loop would never return under sustained
+     * overload and would block those commands indefinitely.
      */
     private void drainLatestFrame() {
         try {
-            while (true) {
-                FrameItem item = latestFrame.getAndSet(null);
-                if (item == null) break;
-
+            FrameItem item = latestFrame.getAndSet(null);
+            if (item != null) {
                 long ageNs = System.nanoTime() - item.timestampNs;
                 if (ageNs > FRAME_AGE_THRESHOLD_NS) {
                     skippedStaleFrames.incrementAndGet();
-                    continue;
-                }
-                try {
-                    processFrame(item);
-                } catch (Throwable t) {
-                    Log.w(TAG, "processFrame threw", t);
+                } else {
+                    try {
+                        processFrame(item);
+                    } catch (Throwable t) {
+                        Log.w(TAG, "processFrame threw", t);
+                    }
                 }
             }
         } finally {
             drainerScheduled.set(false);
-            // Catch the race where a frame landed between the drain-loop's null
-            // read and the flag clear. If so, re-arm.
+            // Re-arm if a frame arrived while we were processing (or we skipped a
+            // stale one). Posting to the queue tail lets any pending control
+            // runnables run first. Mirrors the CAS race handling in submitFrame.
             Handler h = handler;
             if (h != null && latestFrame.get() != null
                     && drainerScheduled.compareAndSet(false, true)) {
