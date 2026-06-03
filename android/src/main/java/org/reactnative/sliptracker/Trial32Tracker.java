@@ -1029,6 +1029,27 @@ public final class Trial32Tracker {
             );
 
             if (consensus.pt == null) {
+                // DIAGNOSTIC (temporary): record why consensus failed — each candidate
+                // method with its confidence and distance from ref_center, plus the
+                // thresholds. Distinguishes a degenerate static-scene loss (all methods
+                // low-confidence / too few candidates) from a single outlier method
+                // breaking the group. Remove once the static-target false "lost
+                // consensus" root cause is confirmed.
+                StringBuilder candDbg = new StringBuilder();
+                for (Candidate c : candidates) {
+                    candDbg.append(c.method)
+                           .append("(conf=").append(String.format("%.2f", c.conf))
+                           .append(",d=").append((int) pt_distance(c.pt, ref_center))
+                           .append(") ");
+                }
+                SlipTrackerDebug.i("consensus NULL: lastDist=" + last_distance
+                        + " nearCenter=" + near_center
+                        + " lostCounter=" + lost_counter
+                        + " quorum=" + consensus_min_methods
+                        + " confMin=" + String.format("%.2f", confidence_min)
+                        + " confStrong=" + String.format("%.2f", confidence_strong)
+                        + " candidates=[" + (candDbg.length() == 0 ? "none" : candDbg.toString().trim()) + "]");
+
                 distance_exceed_counter = 0;
                 Candidate fast_far = null;
                 if (!candidates.isEmpty()) {
