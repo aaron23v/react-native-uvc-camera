@@ -1069,17 +1069,38 @@ public final class Trial32Tracker {
                     return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
                 }
 
-                lost_counter += 1;
-                // Near center, last_distance is stale (~0) so a sudden slip that
-                // outruns the tracker looks "near center" on its first lost frame.
-                // Use a short fixed limit there instead of adding center grace, so
-                // a real slip isn't masked by frames meant to absorb axial jitter.
-                int lost_limit = near_center ? 2 : lost_frames_max;
-                if (lost_counter >= lost_limit) {
-                    reset_tracking("Auto-reset (lost consensus)");
-                    kp_m.release();
-                    desc.release();
-                    return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
+                // Static-target hold: if a MOTION-based method (phase / flow) still
+                // places the coil near center, that's positive evidence it hasn't
+                // moved — even when every candidate is below confMin (a static/smooth
+                // scene gives weak correlation peaks, so the correct methods get
+                // filtered before consensus). Motion-based methods reflect actual
+                // displacement, so unlike patch/feature matches they can't report a
+                // stale near-center hit during a real slip. A genuine slip produces a
+                // strong far candidate (fast_far, above), reports far here, or yields
+                // no near-center candidate at all — all of which still reset.
+                boolean near_center_evidence = false;
+                for (Candidate c : candidates) {
+                    if (("phase".equals(c.method) || "flow".equals(c.method))
+                            && pt_distance(c.pt, ref_center) <= (double) CENTER_GUARD_RADIUS) {
+                        near_center_evidence = true;
+                        break;
+                    }
+                }
+                if (near_center_evidence) {
+                    lost_counter = 0;
+                } else {
+                    lost_counter += 1;
+                    // Near center, last_distance is stale (~0) so a sudden slip that
+                    // outruns the tracker looks "near center" on its first lost frame.
+                    // Use a short fixed limit there instead of adding center grace, so
+                    // a real slip isn't masked by frames meant to absorb axial jitter.
+                    int lost_limit = near_center ? 2 : lost_frames_max;
+                    if (lost_counter >= lost_limit) {
+                        reset_tracking("Auto-reset (lost consensus)");
+                        kp_m.release();
+                        desc.release();
+                        return new FrameState(ref_center, live_pt, 0, last_scale_est, overlay_counter, last_status_message, 0.0);
+                    }
                 }
             } else {
                 lost_counter = 0;
