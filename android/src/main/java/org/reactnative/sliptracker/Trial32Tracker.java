@@ -1028,6 +1028,30 @@ public final class Trial32Tracker {
                 consensus_min_methods
             );
 
+            // DIAGNOSTIC (temporary): unconditional per-frame candidate dump. On
+            // the "bad camera" the consensus flips frame-to-frame between a
+            // near-center group (static background, scale~1.0) and a far group
+            // (real coil). Those frames have non-null consensus, so the null-path
+            // log below never sees them. This prints every method's confidence and
+            // distance-from-center plus which group won, so the two clusters are
+            // visible directly. Remove once the consensus flip is confirmed/fixed.
+            StringBuilder allCand = new StringBuilder();
+            for (Candidate c : candidates) {
+                allCand.append(c.method)
+                       .append("(conf=").append(String.format("%.2f", c.conf))
+                       .append(",d=").append((int) pt_distance(c.pt, ref_center))
+                       .append(") ");
+            }
+            SlipTrackerDebug.i("frame: featureRich=" + tracking_feature_rich
+                    + " chosen=" + (consensus.pt == null
+                            ? "NONE" : String.valueOf((int) pt_distance(consensus.pt, ref_center)))
+                    + " chosenMethods=" + consensus.methods
+                    + " chosenConf=" + String.format("%.2f", consensus.conf)
+                    + " confMin=" + String.format("%.2f", confidence_min)
+                    + " quorum=" + consensus_min_methods
+                    + " consDist=" + CONSENSUS_DIST
+                    + " candidates=[" + (allCand.length() == 0 ? "none" : allCand.toString().trim()) + "]");
+
             if (consensus.pt == null) {
                 // DIAGNOSTIC (temporary): record why consensus failed — each candidate
                 // method with its confidence and distance from ref_center, plus the
