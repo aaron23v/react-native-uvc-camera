@@ -47,6 +47,11 @@ public final class Trial32Tracker {
     public static final int DISTANCE_CONFIRM_FRAMES = 2;
     public static final double DISTANCE_FAST_FACTOR = 1.4;
     public static final double JUMP_FAST_FACTOR = 1.1;
+    // Temporal continuity: bonus to candidate groups near the previous frame's
+    // tracked point, so the vote favors the continuous track over a method that
+    // jumps elsewhere (e.g. homography locking the static background). Ported
+    // from the reference tracker (sid23v/on_off_slip_feature, diagnostic).
+    public static final double TEMPORAL_PREFERENCE_WEIGHT = 0.25;
 
     public int overlay_counter = 0;
     public static final int OVERLAY_FRAMES = 20;
@@ -631,7 +636,8 @@ public final class Trial32Tracker {
         double confidence_min,
         double confidence_strong,
         int consensus_dist,
-        int consensus_min_methods
+        int consensus_min_methods,
+        int[] prev_live_pt
     ) {
         if (candidates == null || candidates.isEmpty()) {
             return new ConsensusResult(null, 0.0, Collections.emptyList());
@@ -678,6 +684,14 @@ public final class Trial32Tracker {
             double score = 0.0;
             for (Candidate g : group) {
                 score += g.conf;
+                if (prev_live_pt != null) {
+                    double prevDist = pt_distance(g.pt, prev_live_pt);
+                    double temporalBoost =
+                        ((consensus_dist - prevDist) / consensus_dist) * TEMPORAL_PREFERENCE_WEIGHT;
+                    if (temporalBoost > 0.0) {
+                        score += temporalBoost;
+                    }
+                }
             }
             if (group.size() > best_group.size() || (group.size() == best_group.size() && score > best_score)) {
                 best_group = group;
@@ -1025,7 +1039,8 @@ public final class Trial32Tracker {
                 confidence_min,
                 confidence_strong,
                 CONSENSUS_DIST,
-                consensus_min_methods
+                consensus_min_methods,
+                prev_live_pt
             );
 
             // DIAGNOSTIC (temporary): unconditional per-frame candidate dump. On
