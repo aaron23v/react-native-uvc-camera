@@ -631,63 +631,6 @@ public final class Trial32Tracker {
         return new FlowResult(pt, conf);
     }
 
-    // Fallback for when select_consensus returns null on a real far slip: a
-    // moving coil matches poorly so each method's confidence dips below the
-    // viability bar, yet 2+ methods still agree on where it is. Return the
-    // confidence-weighted centroid of the largest agreeing group ONLY when that
-    // centroid is past DISTANCE_THRESHOLD (a genuine slip); return null for
-    // near-center or single-method cases so the normal lost/reset path is kept.
-    private static ConsensusResult salvage_far_slip(List<Candidate> candidates, int[] ref_center) {
-        if (candidates == null || candidates.size() < CONSENSUS_MIN_METHODS) {
-            return null;
-        }
-
-        List<Candidate> best_group = new ArrayList<>();
-        for (int i = 0; i < candidates.size(); i++) {
-            Candidate ci = candidates.get(i);
-            List<Candidate> group = new ArrayList<>();
-            group.add(ci);
-            for (int j = 0; j < candidates.size(); j++) {
-                if (i == j) {
-                    continue;
-                }
-                if (pt_distance(ci.pt, candidates.get(j).pt) <= (double) CONSENSUS_DIST) {
-                    group.add(candidates.get(j));
-                }
-            }
-            if (group.size() > best_group.size()) {
-                best_group = group;
-            }
-        }
-
-        if (best_group.size() < CONSENSUS_MIN_METHODS) {
-            return null;
-        }
-
-        double x = 0.0;
-        double y = 0.0;
-        double sum_conf = 0.0;
-        for (Candidate g : best_group) {
-            x += (double) g.pt[0] * g.conf;
-            y += (double) g.pt[1] * g.conf;
-            sum_conf += g.conf;
-        }
-        if (sum_conf <= 0.0) {
-            return null;
-        }
-
-        int[] pt = new int[] { (int) (x / sum_conf), (int) (y / sum_conf) };
-        if (pt_distance(pt, ref_center) <= (double) DISTANCE_THRESHOLD) {
-            return null;
-        }
-
-        List<String> methods = new ArrayList<>();
-        for (Candidate g : best_group) {
-            methods.add(g.method);
-        }
-        return new ConsensusResult(pt, sum_conf / (double) best_group.size(), methods);
-    }
-
     private static ConsensusResult select_consensus(
         List<Candidate> candidates,
         double confidence_min,
@@ -1100,20 +1043,22 @@ public final class Trial32Tracker {
                 prev_live_pt
             );
 
-            // Salvage a real far slip that the strict consensus dropped. As the
-            // coil moves off target its match quality falls, so every method's
-            // confidence can dip below the viability thresholds even while 2+
-            // methods still AGREE the coil is well past the distance threshold.
-            // The strict consensus then returns null and the coil is declared
-            // "lost" (distance collapses to 0 and the tracker re-locks on the
-            // slipped position) instead of surfacing as critical. When the
-            // dropped candidates form an agreeing cluster past DISTANCE_THRESHOLD,
-            // treat it as a confirmed slip: report that position so it lands in
-            // the normal over-threshold path (critical → confirm/reset) below.
+            // Salvage a real slip that the strict consensus dropped. A coil
+            // moving off target matches poorly, so every method's confidence can
+            // fall below the viability floor even while 2+ methods still agree
+            // where it is — consensus then returns null and the coil is declared
+            // "lost" (distance -> 0, re-lock on the slipped spot) instead of
+            // surfacing as a warning/critical. Re-run consensus with the floor
+            // removed and the strong bar raised (so only a >=2 agreeing group can
+            // pass, never a lone method), and accept it only when the agreed
+            // position is outside the center guard — a genuine displacement, not
+            // the background-locked near cluster that would mask a still coil.
             if (consensus.pt == null) {
-                ConsensusResult farSlip = salvage_far_slip(candidates, ref_center);
-                if (farSlip != null) {
-                    consensus = farSlip;
+                ConsensusResult agree = select_consensus(
+                    candidates, 0.0, 1.1, CONSENSUS_DIST, CONSENSUS_MIN_METHODS, prev_live_pt);
+                if (agree.pt != null
+                        && pt_distance(agree.pt, ref_center) > (double) CENTER_GUARD_RADIUS) {
+                    consensus = agree;
                 }
             }
 
