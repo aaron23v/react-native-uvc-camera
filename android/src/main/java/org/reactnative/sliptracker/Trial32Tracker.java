@@ -52,6 +52,12 @@ public final class Trial32Tracker {
     // jumps elsewhere (e.g. homography locking the static background). Ported
     // from the reference tracker (sid23v/on_off_slip_feature, diagnostic).
     public static final double TEMPORAL_PREFERENCE_WEIGHT = 0.25;
+    // Salvage re-run of select_consensus (see the consensus-null path): drop the
+    // confidence floor to 0 and raise the "strong" bar above any achievable
+    // confidence (all method confidences are clamped to <=1.0), so consensus can
+    // only succeed through the >=2 agreeing group path — never a lone method.
+    public static final double SALVAGE_CONFIDENCE_MIN = 0.0;
+    public static final double SALVAGE_CONFIDENCE_STRONG = 1.1;
 
     public int overlay_counter = 0;
     public static final int OVERLAY_FRAMES = 20;
@@ -1055,7 +1061,8 @@ public final class Trial32Tracker {
             // the background-locked near cluster that would mask a still coil.
             if (consensus.pt == null) {
                 ConsensusResult agree = select_consensus(
-                    candidates, 0.0, 1.1, CONSENSUS_DIST, CONSENSUS_MIN_METHODS, prev_live_pt);
+                    candidates, SALVAGE_CONFIDENCE_MIN, SALVAGE_CONFIDENCE_STRONG,
+                    CONSENSUS_DIST, CONSENSUS_MIN_METHODS, prev_live_pt);
                 if (agree.pt != null
                         && pt_distance(agree.pt, ref_center) > (double) CENTER_GUARD_RADIUS) {
                     consensus = agree;
