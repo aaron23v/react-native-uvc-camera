@@ -793,15 +793,63 @@ public final class Trial32Tracker {
     }
 
     /**
+     * Center-crop {@code src} to the {@code target_w}:{@code target_h} aspect ratio.
+     *
+     * <p>Returns {@code src} unchanged when it already matches the target aspect (the
+     * common native-960x720 case). Otherwise returns a centered ROI view of {@code src}
+     * — the caller must release it when it differs from the input. The crop trims the
+     * longer axis only; it never scales, so no distortion is introduced here.
+     */
+    private static Mat aspect_crop(Mat src, int target_w, int target_h) {
+        int w = src.cols();
+        int h = src.rows();
+        if (w <= 0 || h <= 0) {
+            return src;
+        }
+        // Compare aspects via cross-multiplication to avoid floating point.
+        long src_wh = (long) w * target_h;
+        long tgt_wh = (long) target_w * h;
+        if (src_wh == tgt_wh) {
+            return src;
+        }
+        int crop_w;
+        int crop_h;
+        if (src_wh > tgt_wh) {
+            // Source is wider than target: trim the sides.
+            crop_h = h;
+            crop_w = (int) Math.round((double) h * target_w / target_h);
+        } else {
+            // Source is taller than target: trim top/bottom.
+            crop_w = w;
+            crop_h = (int) Math.round((double) w * target_h / target_w);
+        }
+        crop_w = Math.max(1, Math.min(crop_w, w));
+        crop_h = Math.max(1, Math.min(crop_h, h));
+        int x0 = Math.max(0, (w - crop_w) / 2);
+        int y0 = Math.max(0, (h - crop_h) / 2);
+        return new Mat(src, new Rect(x0, y0, crop_w, crop_h));
+    }
+
+    /**
      * Process one frame.
      *
-     * @param gray_raw input grayscale frame (any size); internally resized to {@link #FRAME_WIDTH}x{@link #FRAME_HEIGHT}
+     * @param gray_raw input grayscale frame (any size); internally center-cropped to the
+     *                 {@link #FRAME_WIDTH}:{@link #FRAME_HEIGHT} aspect ratio and then resized
+     *                 to {@link #FRAME_WIDTH}x{@link #FRAME_HEIGHT}
      */
     public FrameState process(Mat gray_raw) {
         last_status_message = null;
 
-        // Mirror: frame = resize -> gray_raw = BGR2GRAY -> clahe.apply
-        Imgproc.resize(gray_raw, last_gray_raw, new Size(FRAME_WIDTH, FRAME_HEIGHT));
+        // Center-crop to the tracker's aspect ratio before scaling. A camera frame wider
+        // than 4:3 (e.g. 1280x720) would otherwise be squished into 960x720, and that
+        // anamorphic distortion degrades the ORB/template features the coil is tracked by
+        // while leaving the stretched static background easy for homography to lock onto —
+        // the root cause of the green-before-red flip. Native 960x720 input is a no-op.
+        Mat cropped = aspect_crop(gray_raw, FRAME_WIDTH, FRAME_HEIGHT);
+        Imgproc.resize(cropped, last_gray_raw, new Size(FRAME_WIDTH, FRAME_HEIGHT));
+        if (cropped != gray_raw) {
+            cropped.release();
+        }
         clahe.apply(last_gray_raw, last_gray);
 
         Mat gray = last_gray;
