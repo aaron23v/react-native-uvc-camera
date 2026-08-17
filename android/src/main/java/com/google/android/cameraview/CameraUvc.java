@@ -25,6 +25,7 @@ import android.graphics.SurfaceTexture;
 import android.hardware.usb.UsbDevice;
 import android.media.CamcorderProfile;
 import android.util.Log;
+import com.serenegiant.usbcameracommon.AmpaLog;
 import android.view.Surface;
 import android.os.Handler;
 import android.os.Looper;
@@ -84,6 +85,37 @@ public class CameraUvc extends CameraViewImpl {
     private boolean mIsNew = true;
     private UsbControlBlock mCtrlBlock;
 
+    // Bounded re-open driver for failed opens. A failed MSG_OPEN leaves mCtrlBlock
+    // set with no camera, and the USBMonitor poller only fires onAttach when the
+    // device COUNT increases (USBMonitor.mDeviceCheckRunnable) — so without an
+    // explicit retry the camera stays black until the next physical unplug.
+    private static final int OPEN_RETRY_MAX = 3;
+    private static final long OPEN_RETRY_DELAY_MS = 1000;
+    private int mOpenRetryCount = 0;
+    private final android.os.Handler mRetryHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable mOpenRetryRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (mCtrlBlock != null || mCameraHandler == null || mUSBMonitor == null) {
+                AmpaLog.d("AMPA", "openRetry: skipped — state recovered or torn down");
+                return;
+            }
+            AmpaLog.d("AMPA", "openRetry: attempt " + mOpenRetryCount + "/" + OPEN_RETRY_MAX);
+            requestCameraPermission(getFirstCameraDevice());
+        }
+    };
+
+    private void scheduleOpenRetry() {
+        if (mOpenRetryCount >= OPEN_RETRY_MAX) {
+            AmpaLog.w("AMPA", "scheduleOpenRetry: giving up after " + OPEN_RETRY_MAX + " attempts");
+            return;
+        }
+        mOpenRetryCount++;
+        mRetryHandler.removeCallbacks(mOpenRetryRunnable);
+        mRetryHandler.postDelayed(mOpenRetryRunnable, OPEN_RETRY_DELAY_MS);
+    }
+
     /**
      * Handler to execute camera related methods sequentially on private thread
      */
@@ -103,27 +135,29 @@ public class CameraUvc extends CameraViewImpl {
             = new UVCCameraHandler.CameraCallback() {
         @Override
         public void onOpen(){
-            Log.d("AMPA", "callback onOpen: camera opened, refreshing surface");
+            AmpaLog.d("AMPA", "callback onOpen: camera opened, refreshing surface");
+            mOpenRetryCount = 0;
+            mRetryHandler.removeCallbacks(mOpenRetryRunnable);
             // getSurfaceTexture() is destructive (releases + recreates the SurfaceTexture
             // and its GL texture on every call), so resolve it once and reuse.
             SurfaceTexture st = (mUVCCameraView != null) ? mUVCCameraView.getSurfaceTexture() : null;
             if (st != null) {
                 mPreviewSurface = new Surface(st);
-                Log.d("AMPA", "callback onOpen: recreated preview surface");
+                AmpaLog.d("AMPA", "callback onOpen: recreated preview surface");
             } else {
-                Log.d("AMPA", "callback onOpen: could not recreate surface, view=" + (mUVCCameraView != null) + " texture=false");
+                AmpaLog.d("AMPA", "callback onOpen: could not recreate surface, view=" + (mUVCCameraView != null) + " texture=false");
             }
             mCallback.onCameraOpened();
             startCaptureSession();
         }
         @Override
         public void onClose(){
-            Log.d("AMPA", "callback onClose: camera closed");
+            AmpaLog.d("AMPA", "callback onClose: camera closed");
             mCallback.onCameraClosed();
         }
         @Override
         public void onStartPreview(){
-            Log.d("AMPA", "callback onStartPreview: preview started");
+            AmpaLog.d("AMPA", "callback onStartPreview: preview started");
             // handleStartPreview installs mIFramePreviewCallback as the single
             // UVCCamera frame-callback slot. Re-apply the external tracking
             // callback after every preview start (initial open AND retry path)
@@ -133,7 +167,7 @@ public class CameraUvc extends CameraViewImpl {
                 try {
                     mCameraHandler.setExternalFrameCallback(mTrackingFrameCallback, com.serenegiant.usb.UVCCamera.PIXEL_FORMAT_NV21);
                 } catch (final Throwable t) {
-                    android.util.Log.w("AMPA", "onStartPreview: re-registering tracking frame callback failed", t);
+                    AmpaLog.w("AMPA", "onStartPreview: re-registering tracking frame callback failed", t);
                 }
             }
         }
@@ -173,7 +207,16 @@ public class CameraUvc extends CameraViewImpl {
         @Override
         public void onError(final Exception e){
 //            Toast.makeText(mContext.getCurrentActivity(), "errorException: " + e, Toast.LENGTH_SHORT).show();
-            Log.e(TAG, "errorException: ", e);
+            AmpaLog.e(TAG, "errorException: ", e);
+            // Only a failed handleOpen reaches here with no camera present
+            // (startPreview/capture failures arrive with mUVCCamera != null, i.e.
+            // isOpened() == true). Clear the latched ctrlBlock so onAttach/onConnect
+            // can run again, and drive a bounded retry since the poller won't.
+            if (mCameraHandler != null && !mCameraHandler.isOpened() && mCtrlBlock != null) {
+                AmpaLog.d("AMPA", "onError: open failed — clearing ctrlBlock and scheduling retry");
+                mCtrlBlock = null;
+                scheduleOpenRetry();
+            }
         }
 
         @Override
@@ -220,7 +263,7 @@ public class CameraUvc extends CameraViewImpl {
 
     CameraUvc(Callback callback, PreviewImpl preview, Context context) {
         super(callback, preview);
-        Log.d("AMPA", "CameraUvc: constructor called");
+        AmpaLog.d("AMPA", "CameraUvc: constructor called");
         mUVCCameraView = (UVCCameraTextureView) preview.getView();
         mUVCCameraView.setAspectRatio(PREVIEW_WIDTH / (float)PREVIEW_HEIGHT);
 
@@ -236,18 +279,18 @@ public class CameraUvc extends CameraViewImpl {
         mPreview.setCallback(new PreviewImpl.Callback() {
             @Override
             public void onSurfaceChanged(Surface  surface) {
-                Log.d("AMPA", "onSurfaceChanged: surface=" + (surface != null ? "exists" : "null") + " isCameraOpened=" + isCameraOpened());
+                AmpaLog.d("AMPA", "onSurfaceChanged: surface=" + (surface != null ? "exists" : "null") + " isCameraOpened=" + isCameraOpened());
                 if (!isCameraOpened() || surface == null) {
-                    Log.d("AMPA", "onSurfaceChanged: SKIPPED");
+                    AmpaLog.d("AMPA", "onSurfaceChanged: SKIPPED");
                     return;
                 }
-                Log.d("AMPA", "onSurfaceChanged: starting preview");
+                AmpaLog.d("AMPA", "onSurfaceChanged: starting preview");
                 mCameraHandler.startPreview(surface);
             }
 
             @Override
             public void onSurfaceDestroyed() {
-                Log.d("AMPA", "DESTROYING SURFACE");
+                AmpaLog.d("AMPA", "DESTROYING SURFACE");
                 mUSBMonitor.unregister();
                 if(mCtrlBlock != null) {
                     mCtrlBlock.close();
@@ -260,12 +303,12 @@ public class CameraUvc extends CameraViewImpl {
     private UsbDevice getFirstCameraDevice() {
         List<DeviceFilter> filter = DeviceFilter.getDeviceFilters(mContext.getCurrentActivity(), com.serenegiant.uvccamera.R.xml.device_filter);
         List<UsbDevice> cameraList =  mUSBMonitor.getDeviceList(filter.get(0));
-        Log.d("AMPA", "getFirstCameraDevice: found " + cameraList.size() + " camera(s)");
+        AmpaLog.d("AMPA", "getFirstCameraDevice: found " + cameraList.size() + " camera(s)");
         if(cameraList.isEmpty()) {
             return null;
         }
         UsbDevice firstCameraDevice = cameraList.get(0);
-        Log.d("AMPA", "getFirstCameraDevice: " + firstCameraDevice.getDeviceName() + " class=" + firstCameraDevice.getDeviceClass());
+        AmpaLog.d("AMPA", "getFirstCameraDevice: " + firstCameraDevice.getDeviceName() + " class=" + firstCameraDevice.getDeviceClass());
         return firstCameraDevice;
     }
 
@@ -285,22 +328,22 @@ public class CameraUvc extends CameraViewImpl {
             // dropped by the old gate, leaving the camera attached but unopened.
             final boolean openedFlag = mCameraHandler.isOpened();
             final boolean hasCtrlBlock = mCtrlBlock != null;
-            Log.d("AMPA", "onAttach: device=" + device.getDeviceName()
+            AmpaLog.d("AMPA", "onAttach: device=" + device.getDeviceName()
                 + " isOpened=" + openedFlag + " hasCtrlBlock=" + hasCtrlBlock);
             if (!hasCtrlBlock) {
                 UsbDevice camera = getFirstCameraDevice();
-                Log.d("AMPA", "onAttach: requesting permission for camera="
+                AmpaLog.d("AMPA", "onAttach: requesting permission for camera="
                     + (camera != null ? camera.getDeviceName() : "null")
                     + " (closeInFlight=" + openedFlag + ")");
                 requestCameraPermission(camera);
             } else {
-                Log.d("AMPA", "onAttach: skipped (mCtrlBlock already set)");
+                AmpaLog.d("AMPA", "onAttach: skipped (mCtrlBlock already set)");
             }
         }
 
         @Override
         public void onConnect(final UsbDevice device, final UsbControlBlock ctrlBlock, final boolean createNew) {
-            Log.d("AMPA", "onConnect: device=" + device.getDeviceName()
+            AmpaLog.d("AMPA", "onConnect: device=" + device.getDeviceName()
                 + " class=" + device.getDeviceClass()
                 + " hasCtrlBlock=" + (mCtrlBlock != null)
                 + " isOpened=" + mCameraHandler.isOpened()
@@ -308,20 +351,20 @@ public class CameraUvc extends CameraViewImpl {
             // Skip if we already have a connection — prevents double-connect from
             // queueing two MSG_OPENs (second one destroys the first's preview)
             if (mCtrlBlock != null) {
-                Log.d("AMPA", "onConnect: already connected, skipping duplicate");
+                AmpaLog.d("AMPA", "onConnect: already connected, skipping duplicate");
                 return;
             }
             mCtrlBlock = ctrlBlock;
             // Note: open() is queued behind any in-flight MSG_PREVIEW_STOP/MSG_CLOSE
             // on the camera handler thread. handleOpen calls handleClose first, so
             // re-opening while a close is still draining is safe and serialized.
-            Log.d("AMPA", "onConnect: enqueueing mCameraHandler.open()");
+            AmpaLog.d("AMPA", "onConnect: enqueueing mCameraHandler.open()");
             mCameraHandler.open(mCtrlBlock);
         }
 
         @Override
         public void onDisconnect(final UsbDevice device, final UsbControlBlock ctrlBlock) {
-            Log.d("AMPA", "onDisconnect: device=" + device.getDeviceName()
+            AmpaLog.d("AMPA", "onDisconnect: device=" + device.getDeviceName()
                 + " isPreviewing=" + (mCameraHandler != null && mCameraHandler.isPreviewing()));
             if (mCameraHandler != null) {
                 // stopPreview() blocks the caller on mSync.wait() until the native
@@ -332,7 +375,7 @@ public class CameraUvc extends CameraViewImpl {
                 Thread closer = new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        Log.d("AMPA", "UvcCamera-Close: thread started for "
+                        AmpaLog.d("AMPA", "UvcCamera-Close: thread started for "
                             + (closingDevice != null ? closingDevice.getDeviceName() : "null"));
                         if (mCameraHandler != null) {
                             if (mCameraHandler.isPreviewing()) {
@@ -343,7 +386,7 @@ public class CameraUvc extends CameraViewImpl {
                             // replaced mUVCCamera with a camera for a different device.
                             mCameraHandler.close(closingDevice);
                         }
-                        Log.d("AMPA", "UvcCamera-Close: thread finished after "
+                        AmpaLog.d("AMPA", "UvcCamera-Close: thread finished after "
                             + (android.os.SystemClock.elapsedRealtime() - t0) + "ms");
                     }
                 }, "UvcCamera-Close");
@@ -357,10 +400,10 @@ public class CameraUvc extends CameraViewImpl {
             if (mCtrlBlock != null) {
                 final UsbDevice held = mCtrlBlock.getDevice();
                 if (held == null || held.equals(device)) {
-                    Log.d("AMPA", "onDisconnect: clearing mCtrlBlock for " + device.getDeviceName());
+                    AmpaLog.d("AMPA", "onDisconnect: clearing mCtrlBlock for " + device.getDeviceName());
                     mCtrlBlock = null;
                 } else {
-                    Log.d("AMPA", "onDisconnect: keeping mCtrlBlock — held="
+                    AmpaLog.d("AMPA", "onDisconnect: keeping mCtrlBlock — held="
                         + held.getDeviceName() + " disconnecting=" + device.getDeviceName());
                 }
             }
@@ -368,7 +411,7 @@ public class CameraUvc extends CameraViewImpl {
 
         @Override
         public void onDettach(final UsbDevice device) {
-            Log.d("AMPA", "onDettach: device=" + device.getDeviceName()
+            AmpaLog.d("AMPA", "onDettach: device=" + device.getDeviceName()
                 + " hadCtrlBlock=" + (mCtrlBlock != null));
             // Same identity guard as onDisconnect — only clear if the dettach is for
             // the device whose ctrlBlock we currently hold.
@@ -382,7 +425,7 @@ public class CameraUvc extends CameraViewImpl {
 
         @Override
         public void onCancel(final UsbDevice device) {
-            Log.d("AMPA", "onCancel: device=" + device.getDeviceName());
+            AmpaLog.d("AMPA", "onCancel: device=" + device.getDeviceName());
         }
     };
 
@@ -396,16 +439,21 @@ public class CameraUvc extends CameraViewImpl {
         // setAspectRatio(mInitialRatio);
         // mInitialRatio = null;
 
-        if (mIsNew) {
-            Log.d("AMPA", "start: registering USBMonitor (first time)");
+        if (mIsNew || !mUSBMonitor.isRegistered()) {
+            // Re-register after onSurfaceDestroyed unregistered the monitor — it is
+            // the only attach detector, so leaving it unregistered permanently kills
+            // reconnect for this view. register() is internally idempotent and resets
+            // mDeviceCounts, so the next 2s poll re-fires onAttach for present devices.
+            AmpaLog.d("AMPA", "start: registering USBMonitor"
+                + (mIsNew ? " (first time)" : " (re-register)"));
             mUSBMonitor.register();
             mIsNew = false;
         }
         if (mCtrlBlock != null) {
-            Log.d("AMPA", "start: opening camera with existing ctrlBlock");
+            AmpaLog.d("AMPA", "start: opening camera with existing ctrlBlock");
             mCameraHandler.open(mCtrlBlock);
         } else {
-            Log.d("AMPA", "start: no ctrlBlock yet");
+            AmpaLog.d("AMPA", "start: no ctrlBlock yet");
         }
         // if (mUVCCameraView != null)
         //     mUVCCameraView.onResume();
@@ -454,6 +502,7 @@ public class CameraUvc extends CameraViewImpl {
 
     @Override
     void destroy() {
+        mRetryHandler.removeCallbacks(mOpenRetryRunnable);
         if (mCameraHandler != null) {
             mCameraHandler.release();
             mCameraHandler = null;
@@ -668,16 +717,16 @@ public class CameraUvc extends CameraViewImpl {
      */
     void startCaptureSession() {
         if (!isCameraOpened()) {
-            Log.d("AMPA", "startCaptureSession: SKIPPED - camera not opened");
+            AmpaLog.d("AMPA", "startCaptureSession: SKIPPED - camera not opened");
             return;
         }
         Surface surface = getPreviewSurface();
-        Log.d("AMPA", "startCaptureSession: starting preview, surface=" + (surface != null ? "exists" : "null"));
+        AmpaLog.d("AMPA", "startCaptureSession: starting preview, surface=" + (surface != null ? "exists" : "null"));
         mCameraHandler.startPreview(surface);
     }
 
     void stopCaptureSession() {
-        Log.d("AMPA", "stopCaptureSession: stopping preview");
+        AmpaLog.d("AMPA", "stopCaptureSession: stopping preview");
         mCameraHandler.stopPreview();
     }
 
@@ -791,9 +840,9 @@ public class CameraUvc extends CameraViewImpl {
             try {
                 mCameraHandler.setExternalFrameCallback(callback, com.serenegiant.usb.UVCCamera.PIXEL_FORMAT_NV21);
             } catch (final IllegalArgumentException e) {
-                android.util.Log.w("AMPA", "enableTrackingFrames: device does not support NV21 frames", e);
+                AmpaLog.w("AMPA", "enableTrackingFrames: device does not support NV21 frames", e);
             } catch (final Throwable t) {
-                android.util.Log.w("AMPA", "enableTrackingFrames: failed", t);
+                AmpaLog.w("AMPA", "enableTrackingFrames: failed", t);
             }
         } else {
             mTrackingPending = true;
@@ -807,7 +856,7 @@ public class CameraUvc extends CameraViewImpl {
             try {
                 mCameraHandler.setExternalFrameCallback(null, 0);
             } catch (final Throwable t) {
-                android.util.Log.w("AMPA", "disableTrackingFrames: failed", t);
+                AmpaLog.w("AMPA", "disableTrackingFrames: failed", t);
             }
         }
     }

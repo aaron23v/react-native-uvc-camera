@@ -36,6 +36,7 @@ import android.media.ImageReader;
 import android.media.MediaRecorder;
 import androidx.annotation.NonNull;
 import android.util.Log;
+import com.serenegiant.usbcameracommon.AmpaLog;
 import android.util.SparseIntArray;
 import android.view.Surface;
 import android.os.Handler;
@@ -96,7 +97,7 @@ class Camera2 extends CameraViewImpl implements MediaRecorder.OnInfoListener, Me
 
         @Override
         public void onError(@NonNull CameraDevice camera, int error) {
-            Log.e(TAG, "onError: " + camera.getId() + " (" + error + ")");
+            AmpaLog.e(TAG, "onError: " + camera.getId() + " (" + error + ")");
             mCamera = null;
         }
 
@@ -121,15 +122,15 @@ class Camera2 extends CameraViewImpl implements MediaRecorder.OnInfoListener, Me
                 mCaptureSession.setRepeatingRequest(mPreviewRequestBuilder.build(),
                         mCaptureCallback, null);
             } catch (CameraAccessException e) {
-                Log.e(TAG, "Failed to start camera preview because it couldn't access camera", e);
+                AmpaLog.e(TAG, "Failed to start camera preview because it couldn't access camera", e);
             } catch (IllegalStateException e) {
-                Log.e(TAG, "Failed to start camera preview.", e);
+                AmpaLog.e(TAG, "Failed to start camera preview.", e);
             }
         }
 
         @Override
         public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-            Log.e(TAG, "Failed to configure capture session.");
+            AmpaLog.e(TAG, "Failed to configure capture session.");
         }
 
         @Override
@@ -153,7 +154,7 @@ class Camera2 extends CameraViewImpl implements MediaRecorder.OnInfoListener, Me
                 mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
                         CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE);
             } catch (CameraAccessException e) {
-                Log.e(TAG, "Failed to run precapture sequence.", e);
+                AmpaLog.e(TAG, "Failed to run precapture sequence.", e);
             }
         }
 
@@ -951,7 +952,7 @@ class Camera2 extends CameraViewImpl implements MediaRecorder.OnInfoListener, Me
             mCaptureCallback.setState(PictureCaptureCallback.STATE_LOCKING);
             mCaptureSession.capture(mPreviewRequestBuilder.build(), mCaptureCallback, null);
         } catch (CameraAccessException e) {
-            Log.e(TAG, "Failed to lock focus.", e);
+            AmpaLog.e(TAG, "Failed to lock focus.", e);
         }
     }
 
@@ -1009,7 +1010,7 @@ class Camera2 extends CameraViewImpl implements MediaRecorder.OnInfoListener, Me
                         }
                     }, null);
         } catch (CameraAccessException e) {
-            Log.e(TAG, "Cannot capture a still picture.", e);
+            AmpaLog.e(TAG, "Cannot capture a still picture.", e);
         }
     }
 
@@ -1108,7 +1109,7 @@ class Camera2 extends CameraViewImpl implements MediaRecorder.OnInfoListener, Me
                 mCaptureCallback.setState(PictureCaptureCallback.STATE_PREVIEW);
             }
         } catch (CameraAccessException e) {
-            Log.e(TAG, "Failed to restart camera preview.", e);
+            AmpaLog.e(TAG, "Failed to restart camera preview.", e);
         }
     }
 

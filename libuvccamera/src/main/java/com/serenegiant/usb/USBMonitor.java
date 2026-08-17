@@ -557,11 +557,18 @@ public final class USBMonitor {
 		}
 	};
 
+	private static final int CONNECT_RETRY_MAX = 3;
+	private static final long CONNECT_RETRY_DELAY_MS = 500;
+
 	/**
 	 * open specific USB device
 	 * @param device
 	 */
 	private final void processConnect(final UsbDevice device) {
+		processConnect(device, 0);
+	}
+
+	private final void processConnect(final UsbDevice device, final int attempt) {
 		if (destroyed) return;
 		updatePermission(device, true);
 		mAsyncHandler.post(new Runnable() {
@@ -580,7 +587,20 @@ public final class USBMonitor {
 						mUsbManager.requestPermission(device, mPermissionIntent);
 						return;
 					} catch (IllegalStateException e) {
-						Log.w(TAG, "processConnect: device unavailable, skipping: " + e.getMessage());
+						// openDevice returned null — the device is usually still settling
+						// after re-enumeration. Nothing upstream retries (the device-check
+						// poller only fires onAttach on a count increase), so retry here
+						// or the connection is lost until the next physical unplug.
+						Log.w(TAG, "processConnect: device unavailable (attempt "
+							+ attempt + "/" + CONNECT_RETRY_MAX + "): " + e.getMessage());
+						if (attempt < CONNECT_RETRY_MAX) {
+							mAsyncHandler.postDelayed(new Runnable() {
+								@Override
+								public void run() {
+									processConnect(device, attempt + 1);
+								}
+							}, CONNECT_RETRY_DELAY_MS);
+						}
 						return;
 					}
 					mCtrlBlocks.put(device, ctrlBlock);

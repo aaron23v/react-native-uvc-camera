@@ -187,6 +187,21 @@ abstract class AbstractUVCCameraHandler extends Handler {
 	public void close(final UsbDevice expectedDevice) {
 		if (DEBUG) Log.v(TAG, "close: expectedDevice=" + (expectedDevice != null ? expectedDevice.getDeviceName() : "null"));
 		if (isOpened()) {
+			// The identity check must also gate stopPreview(), not just MSG_CLOSE:
+			// stopPreview() does removeMessages(MSG_PREVIEW_START), so a stale close
+			// thread (old device's onDisconnect racing a fast replug) would delete the
+			// NEW camera's queued preview-start — camera open, onCameraReady fired,
+			// black screen, and the retry watchdog never arms because it is only
+			// scheduled from inside handleStartPreview.
+			if (expectedDevice != null) {
+				final CameraThread thread = mWeakThread.get();
+				final UsbDevice current = thread != null ? thread.getCurrentDevice() : null;
+				if (current != null && !expectedDevice.equals(current)) {
+					AmpaLog.d("AMPA", "close: SKIPPED stale close — current="
+						+ current.getDeviceName() + " expected=" + expectedDevice.getDeviceName());
+					return;
+				}
+			}
 			stopPreview();
 			sendMessage(obtainMessage(MSG_CLOSE, expectedDevice));
 		}
@@ -553,6 +568,12 @@ abstract class AbstractUVCCameraHandler extends Handler {
 			}
 		}
 
+		public UsbDevice getCurrentDevice() {
+			synchronized (mSync) {
+				return mUVCCamera != null ? mUVCCamera.getDevice() : null;
+			}
+		}
+
 		public boolean isPreviewing() {
 			synchronized (mSync) {
 				return mUVCCamera != null && mIsPreviewing;
@@ -570,20 +591,20 @@ abstract class AbstractUVCCameraHandler extends Handler {
 		}
 
 		public void handleOpen(final USBMonitor.UsbControlBlock ctrlBlock) {
-			Log.d("AMPA", "handleOpen: closing stale camera first, isPreviewing=" + mIsPreviewing);
+			AmpaLog.d("AMPA", "handleOpen: closing stale camera first, isPreviewing=" + mIsPreviewing);
 			handleClose();
 			mFrameCount = 0;
 			try {
-				Log.d("AMPA", "handleOpen: opening camera device=" + ctrlBlock.getDeviceName());
+				AmpaLog.d("AMPA", "handleOpen: opening camera device=" + ctrlBlock.getDeviceName());
 				final UVCCamera camera = new UVCCamera();
 				camera.open(ctrlBlock);
 				synchronized (mSync) {
 					mUVCCamera = camera;
 				}
-				Log.d("AMPA", "handleOpen: SUCCESS - camera opened");
+				AmpaLog.d("AMPA", "handleOpen: SUCCESS - camera opened");
 				callOnOpen();
 			} catch (final Exception e) {
-				Log.e("AMPA", "handleOpen: FAILED - " + e.getMessage());
+				AmpaLog.e("AMPA", "handleOpen: FAILED - " + e.getMessage());
 				callOnError(e);
 			}
 			if (DEBUG) Log.i(TAG, "supportedSize:" + (mUVCCamera != null ? mUVCCamera.getSupportedSize() : null));
@@ -602,7 +623,7 @@ abstract class AbstractUVCCameraHandler extends Handler {
 				if (camera != null) {
 					final UsbDevice cur = camera.getDevice();
 					if (cur != null && !expectedDevice.equals(cur)) {
-						Log.d("AMPA", "handleClose: SKIPPED stale close — current="
+						AmpaLog.d("AMPA", "handleClose: SKIPPED stale close — current="
 							+ cur.getDeviceName() + " expected=" + expectedDevice.getDeviceName());
 						return;
 					}
@@ -623,22 +644,25 @@ abstract class AbstractUVCCameraHandler extends Handler {
 			synchronized (mSync) {
 				camera = mUVCCamera;
 				mUVCCamera = null;
+				// Must be cleared here, not after camera.stopPreview() below — stopping
+				// a physically-removed device can throw, and the catch would leave
+				// mIsPreviewing latched true with mUVCCamera already null. Nothing can
+				// clear it after that (isPreviewing() reports false once the camera is
+				// null), so the next open's handleStartPreview would be skipped forever.
+				mIsPreviewing = false;
 			}
 			if (camera != null) {
 				try {
-					Log.d("AMPA",  "handleCLose Step:stopPreview()");
+					AmpaLog.d("AMPA",  "handleCLose Step:stopPreview()");
 					camera.stopPreview();
-					synchronized (mSync) {
-						mIsPreviewing = false;
-					}
-					Log.d("AMPA",  "handleCLose Step:close()");
+					AmpaLog.d("AMPA",  "handleCLose Step:close()");
 					camera.close();
-					Log.d("AMPA",  "handleCLose Step:destroy()");
+					AmpaLog.d("AMPA",  "handleCLose Step:destroy()");
 					camera.destroy();
-					Log.d("AMPA",  "handleCLose Step:callOnClose()");
+					AmpaLog.d("AMPA",  "handleCLose Step:callOnClose()");
 					callOnClose();
 				}catch(Exception  e) {
-					Log.d("AMPA", e.toString());
+					AmpaLog.d("AMPA", e.toString());
 				}
 				if (DEBUG) Log.v(TAG_THREAD, "called camera.stopPreview,close,destroy:");
 			}
@@ -646,43 +670,43 @@ abstract class AbstractUVCCameraHandler extends Handler {
 		}
 
 		public void handleStartPreview(final Object surface) {
-			Log.d("AMPA", "handleStartPreview: camera=" + (mUVCCamera != null) + " isPreviewing=" + mIsPreviewing + " surface=" + (surface != null ? surface.getClass().getSimpleName() : "null"));
+			AmpaLog.d("AMPA", "handleStartPreview: camera=" + (mUVCCamera != null) + " isPreviewing=" + mIsPreviewing + " surface=" + (surface != null ? surface.getClass().getSimpleName() : "null"));
 			if ((mUVCCamera == null) || mIsPreviewing) {
-				Log.d("AMPA", "handleStartPreview: SKIPPED - camera=" + (mUVCCamera != null) + " isPreviewing=" + mIsPreviewing);
+				AmpaLog.d("AMPA", "handleStartPreview: SKIPPED - camera=" + (mUVCCamera != null) + " isPreviewing=" + mIsPreviewing);
 				return;
 			}
 			try {
 				Size nearestSize = mUVCCamera.getNearestSize(mWidth, mHeight, UVCCamera.FRAME_FORMAT_MJPEG);
-				Log.d("AMPA", "handleStartPreview: MJPEG nearestSize=" + (nearestSize != null ? nearestSize.width + "x" + nearestSize.height : "null") + " requested=" + mWidth + "x" + mHeight);
+				AmpaLog.d("AMPA", "handleStartPreview: MJPEG nearestSize=" + (nearestSize != null ? nearestSize.width + "x" + nearestSize.height : "null") + " requested=" + mWidth + "x" + mHeight);
 				if (nearestSize == null) {
 					mUVCCamera.setPreviewSize(mWidth, mHeight, 1, 31, UVCCamera.FRAME_FORMAT_MJPEG, mBandwidthFactor);
 				} else {
 					mUVCCamera.setPreviewSize(nearestSize.width, nearestSize.height, 1, 31, UVCCamera.FRAME_FORMAT_MJPEG, mBandwidthFactor);
 				}
 			} catch (final IllegalArgumentException e) {
-				Log.d("AMPA", "handleStartPreview: MJPEG failed, falling back to YUYV: " + e.getMessage());
+				AmpaLog.d("AMPA", "handleStartPreview: MJPEG failed, falling back to YUYV: " + e.getMessage());
 				try {
 					Size nearestSize = mUVCCamera.getNearestSize(mWidth, mHeight, UVCCamera.FRAME_FORMAT_YUYV);
-					Log.d("AMPA", "handleStartPreview: YUYV nearestSize=" + (nearestSize != null ? nearestSize.width + "x" + nearestSize.height : "null"));
+					AmpaLog.d("AMPA", "handleStartPreview: YUYV nearestSize=" + (nearestSize != null ? nearestSize.width + "x" + nearestSize.height : "null"));
 					if (nearestSize == null) {
 						mUVCCamera.setPreviewSize(mWidth, mHeight, 1, 31, UVCCamera.FRAME_FORMAT_YUYV, mBandwidthFactor);
 					} else {
 						mUVCCamera.setPreviewSize(nearestSize.width, nearestSize.height, 1, 31, UVCCamera.FRAME_FORMAT_YUYV, mBandwidthFactor);
 					}
 				} catch (final IllegalArgumentException e1) {
-					Log.e("AMPA", "handleStartPreview: YUYV also failed: " + e1.getMessage());
+					AmpaLog.e("AMPA", "handleStartPreview: YUYV also failed: " + e1.getMessage());
 					callOnError(e1);
 					return;
 				}
 			}
 			if (surface instanceof SurfaceHolder) {
-				Log.d("AMPA", "handleStartPreview: setPreviewDisplay(SurfaceHolder)");
+				AmpaLog.d("AMPA", "handleStartPreview: setPreviewDisplay(SurfaceHolder)");
 				mUVCCamera.setPreviewDisplay((SurfaceHolder)surface);
 			} if (surface instanceof Surface) {
-				Log.d("AMPA", "handleStartPreview: setPreviewDisplay(Surface) hashCode=" + surface.hashCode());
+				AmpaLog.d("AMPA", "handleStartPreview: setPreviewDisplay(Surface) hashCode=" + surface.hashCode());
 				mUVCCamera.setPreviewDisplay((Surface)surface);
 			} else {
-				Log.d("AMPA", "handleStartPreview: setPreviewTexture(SurfaceTexture)");
+				AmpaLog.d("AMPA", "handleStartPreview: setPreviewTexture(SurfaceTexture)");
 				mUVCCamera.setPreviewTexture((SurfaceTexture)surface);
 			}
 			mUVCCamera.startPreview();
@@ -692,7 +716,7 @@ abstract class AbstractUVCCameraHandler extends Handler {
 			synchronized (mSync) {
 				mIsPreviewing = true;
 			}
-			Log.d("AMPA", "handleStartPreview: SUCCESS - preview is now active");
+			AmpaLog.d("AMPA", "handleStartPreview: SUCCESS - preview is now active");
 			callOnStartPreview();
 
 			// Store surface and schedule frame check for Java-level retry
@@ -701,12 +725,12 @@ abstract class AbstractUVCCameraHandler extends Handler {
 				mHandler.removeMessages(MSG_PREVIEW_RETRY);
 				Message retryMsg = mHandler.obtainMessage(MSG_PREVIEW_RETRY, surface);
 				mHandler.sendMessageDelayed(retryMsg, 2000);
-				Log.d("AMPA", "handleStartPreview: scheduled frame check in 2s");
+				AmpaLog.d("AMPA", "handleStartPreview: scheduled frame check in 2s");
 			}
 		}
 
 		public void handleStopPreview() {
-			Log.d("AMPA", "handleStopPreview: isPreviewing=" + mIsPreviewing);
+			AmpaLog.d("AMPA", "handleStopPreview: isPreviewing=" + mIsPreviewing);
 			// Cancel any pending retry
 			if (mHandler != null) {
 				mHandler.removeMessages(MSG_PREVIEW_RETRY);
@@ -720,34 +744,34 @@ abstract class AbstractUVCCameraHandler extends Handler {
 					mIsPreviewing = false;
 					mSync.notifyAll();
 				}
-				Log.d("AMPA", "handleStopPreview: preview stopped, isPreviewing=false");
+				AmpaLog.d("AMPA", "handleStopPreview: preview stopped, isPreviewing=false");
 				callOnStopPreview();
 			}
 		}
 
 		public void handlePreviewRetry(final Object surface) {
 			int maxJavaRetries = 3;
-			Log.d("AMPA", "handlePreviewRetry: frameCount=" + mFrameCount + " isPreviewing=" + mIsPreviewing + " camera=" + (mUVCCamera != null) + " retryCount=" + mPreviewRetryCount + "/" + maxJavaRetries);
+			AmpaLog.d("AMPA", "handlePreviewRetry: frameCount=" + mFrameCount + " isPreviewing=" + mIsPreviewing + " camera=" + (mUVCCamera != null) + " retryCount=" + mPreviewRetryCount + "/" + maxJavaRetries);
 
 			if (mUVCCamera == null) {
-				Log.d("AMPA", "handlePreviewRetry: no camera, skipping");
+				AmpaLog.d("AMPA", "handlePreviewRetry: no camera, skipping");
 				return;
 			}
 
 			if (mFrameCount > 0) {
-				Log.d("AMPA", "handlePreviewRetry: frames are flowing (" + mFrameCount + "), no retry needed");
+				AmpaLog.d("AMPA", "handlePreviewRetry: frames are flowing (" + mFrameCount + "), no retry needed");
 				mPreviewRetryCount = 0;
 				return;
 			}
 
 			if (mPreviewRetryCount >= maxJavaRetries) {
-				Log.e("AMPA", "handlePreviewRetry: exhausted " + maxJavaRetries + " retries, giving up");
+				AmpaLog.e("AMPA", "handlePreviewRetry: exhausted " + maxJavaRetries + " retries, giving up");
 				mPreviewRetryCount = 0;
 				return;
 			}
 
 			mPreviewRetryCount++;
-			Log.d("AMPA", "handlePreviewRetry: no frames detected, restarting preview (attempt " + mPreviewRetryCount + "/" + maxJavaRetries + ")");
+			AmpaLog.d("AMPA", "handlePreviewRetry: no frames detected, restarting preview (attempt " + mPreviewRetryCount + "/" + maxJavaRetries + ")");
 
 			// Stop current preview
 			if (mIsPreviewing) {
@@ -936,7 +960,7 @@ abstract class AbstractUVCCameraHandler extends Handler {
 			public void onFrame(final ByteBuffer frame) {
 				mFrameCount++;
 				if (mFrameCount == 1 || mFrameCount == 5 || mFrameCount == 30) {
-					Log.d("AMPA", "onFrame: frame #" + mFrameCount + " received, size=" + (frame != null ? frame.remaining() : 0));
+					AmpaLog.d("AMPA", "onFrame: frame #" + mFrameCount + " received, size=" + (frame != null ? frame.remaining() : 0));
 				}
 				synchronized (mSync) {
 				}
@@ -950,14 +974,14 @@ abstract class AbstractUVCCameraHandler extends Handler {
 					final Bitmap bitmap = mWeakCameraView.get().captureStillImage();
 					if(bitmap == null) {
 						if (mFrameCount <= 5) {
-							Log.d("AMPA", "onFrame: bitmap is null at frame #" + mFrameCount);
+							AmpaLog.d("AMPA", "onFrame: bitmap is null at frame #" + mFrameCount);
 						}
 						return;
 					}
 					callOnPreviewFrame(bitmap);
 				} catch (final Exception e) {
 					if (mFrameCount <= 5) {
-						Log.e("AMPA", "onFrame: exception at frame #" + mFrameCount + ": " + e.getMessage());
+						AmpaLog.e("AMPA", "onFrame: exception at frame #" + mFrameCount + ": " + e.getMessage());
 					}
 				}
 			}
