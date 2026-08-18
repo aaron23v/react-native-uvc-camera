@@ -147,7 +147,6 @@ public class CameraUvc extends CameraViewImpl {
             } else {
                 AmpaLog.d("AMPA", "callback onOpen: could not recreate surface, view=" + (mUVCCameraView != null) + " texture=false");
             }
-            mCallback.onCameraOpened();
             startCaptureSession();
         }
         @Override
@@ -158,6 +157,12 @@ public class CameraUvc extends CameraViewImpl {
         @Override
         public void onStartPreview(){
             AmpaLog.d("AMPA", "callback onStartPreview: preview started");
+            // Fire the JS-facing "ready" callback here, not from onOpen — onOpen only
+            // means the USB handle opened, not that frames are flowing. A disconnect
+            // racing the queued startPreview (device dies between open and preview
+            // start) used to leave JS believing the camera was ready with a blank
+            // texture, since onCameraOpened had already fired before the race lost.
+            mCallback.onCameraOpened();
             // handleStartPreview installs mIFramePreviewCallback as the single
             // UVCCamera frame-callback slot. Re-apply the external tracking
             // callback after every preview start (initial open AND retry path)
