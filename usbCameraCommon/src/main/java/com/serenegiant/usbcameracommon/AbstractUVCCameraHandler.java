@@ -490,6 +490,11 @@ abstract class AbstractUVCCameraHandler extends Handler {
 		private long lastFrameProcessedTime;
 		private Object mLastPreviewSurface;
 		private int mPreviewRetryCount;
+		// mFrameCount value as of the previous handlePreviewRetry check. Compared against
+		// the current mFrameCount to detect a mid-stream stall — mFrameCount itself never
+		// resets once frames start flowing, so checking "> 0" alone only proves frames
+		// arrived at some point in the past, not that they are still arriving now.
+		private int mLastCheckedFrameCount;
 
 		/**
 		 *
@@ -594,6 +599,7 @@ abstract class AbstractUVCCameraHandler extends Handler {
 			AmpaLog.d("AMPA", "handleOpen: closing stale camera first, isPreviewing=" + mIsPreviewing);
 			handleClose();
 			mFrameCount = 0;
+			mLastCheckedFrameCount = 0;
 			try {
 				AmpaLog.d("AMPA", "handleOpen: opening camera device=" + ctrlBlock.getDeviceName());
 				final UVCCamera camera = new UVCCamera();
@@ -751,16 +757,33 @@ abstract class AbstractUVCCameraHandler extends Handler {
 
 		public void handlePreviewRetry(final Object surface) {
 			int maxJavaRetries = 3;
-			AmpaLog.d("AMPA", "handlePreviewRetry: frameCount=" + mFrameCount + " isPreviewing=" + mIsPreviewing + " camera=" + (mUVCCamera != null) + " retryCount=" + mPreviewRetryCount + "/" + maxJavaRetries);
+			final int framesSinceLastCheck = mFrameCount - mLastCheckedFrameCount;
+			AmpaLog.d("AMPA", "handlePreviewRetry: frameCount=" + mFrameCount + " sinceLastCheck=" + framesSinceLastCheck + " isPreviewing=" + mIsPreviewing + " camera=" + (mUVCCamera != null) + " retryCount=" + mPreviewRetryCount + "/" + maxJavaRetries);
 
 			if (mUVCCamera == null) {
 				AmpaLog.d("AMPA", "handlePreviewRetry: no camera, skipping");
 				return;
 			}
 
-			if (mFrameCount > 0) {
-				AmpaLog.d("AMPA", "handlePreviewRetry: frames are flowing (" + mFrameCount + "), no retry needed");
+			if (!mIsPreviewing) {
+				AmpaLog.d("AMPA", "handlePreviewRetry: not previewing, skipping");
+				return;
+			}
+
+			if (framesSinceLastCheck > 0) {
+				AmpaLog.d("AMPA", "handlePreviewRetry: frames are flowing (" + framesSinceLastCheck + " since last check), no retry needed");
 				mPreviewRetryCount = 0;
+				mLastCheckedFrameCount = mFrameCount;
+				// mFrameCount never resets on its own once frames start flowing, so a single
+				// check right after start can't catch a stall that happens later in the
+				// session. Re-arm so this keeps watching for the life of the preview —
+				// handleStopPreview/handleClose already cancel MSG_PREVIEW_RETRY, so this
+				// self-perpetuating chain terminates cleanly when the preview actually stops.
+				if (mHandler != null) {
+					mHandler.removeMessages(MSG_PREVIEW_RETRY);
+					Message retryMsg = mHandler.obtainMessage(MSG_PREVIEW_RETRY, surface);
+					mHandler.sendMessageDelayed(retryMsg, 2000);
+				}
 				return;
 			}
 
@@ -783,6 +806,7 @@ abstract class AbstractUVCCameraHandler extends Handler {
 
 			// Reset frame count and restart
 			mFrameCount = 0;
+			mLastCheckedFrameCount = 0;
 
 			// Re-run handleStartPreview with the stored surface
 			handleStartPreview(surface);

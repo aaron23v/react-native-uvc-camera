@@ -57,6 +57,31 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   private boolean mIsPaused = false;
   private boolean mIsNew = true;
 
+  // A singleTask launchMode + USB_DEVICE_ATTACHED intent-filter (see AndroidManifest.xml)
+  // makes Android "bring task to front" on every USB re-enumeration, even while this
+  // Activity is already foregrounded — producing a same-millisecond onHostPause/onHostResume
+  // flicker. Without debouncing, every flicker fully tore down and reopened the UVC camera,
+  // turning a harmless no-op window transition into a guaranteed, visible camera freeze.
+  // Debouncing the pause lets a resume that arrives before PAUSE_DEBOUNCE_MS cancel it
+  // outright — the camera was never actually stopped, so there is nothing to restart.
+  private static final long PAUSE_DEBOUNCE_MS = 400;
+  private final android.os.Handler mLifecycleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+  private boolean mPauseScheduled = false;
+  private final Runnable mDeferredPauseRunnable = new Runnable() {
+    @Override
+    public void run() {
+      mPauseScheduled = false;
+      if (mIsPaused || !isCameraOpened()) return;
+      mIsPaused = true;
+      stop();
+      if (mSlipTracker != null) {
+        uninstallTrackingFrameCallback();
+        mSlipTracker.stop();
+        mSlipTracker = null;
+      }
+    }
+  };
+
   // Concurrency lock for scanners to avoid flooding the runtime
   public volatile boolean barCodeScannerTaskLock = false;
   public volatile boolean faceDetectorTaskLock = false;
@@ -500,6 +525,14 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   public void onHostResume() {
     Log.d("AMPA", "ONHOSTRESUME");
 //    registerUsbMonitor();
+    if (mPauseScheduled) {
+      // The paired onHostPause hasn't fired yet — this is the flicker case. Cancel it;
+      // the camera was never actually stopped, so there is nothing to restart here.
+      mLifecycleHandler.removeCallbacks(mDeferredPauseRunnable);
+      mPauseScheduled = false;
+      Log.d("AMPA", "onHostResume: cancelled pending pause (flicker)");
+      return;
+    }
     if (hasCameraPermissions()) {
       if ((mIsPaused && !isCameraOpened()) || mIsNew) {
         mIsPaused = false;
@@ -519,19 +552,15 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   @Override
   public void onHostPause() {
     Log.d("AMPA", "ONHOSTPAUSE");
-    if (!mIsPaused && isCameraOpened()) {
-      mIsPaused = true;
-      stop();
-    }
-    if (mSlipTracker != null) {
-        uninstallTrackingFrameCallback();
-        mSlipTracker.stop();
-        mSlipTracker = null;
-    }
+    if (mPauseScheduled || mIsPaused || !isCameraOpened()) return;
+    mPauseScheduled = true;
+    mLifecycleHandler.postDelayed(mDeferredPauseRunnable, PAUSE_DEBOUNCE_MS);
   }
 
   @Override
   public void onHostDestroy() {
+    mLifecycleHandler.removeCallbacks(mDeferredPauseRunnable);
+    mPauseScheduled = false;
     if (mFaceDetector != null) {
       mFaceDetector.release();
     }
