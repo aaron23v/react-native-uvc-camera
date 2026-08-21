@@ -994,21 +994,38 @@ static void _uvc_stream_callback(struct libusb_transfer *transfer) {
 			_uvc_process_payload_iso(strmh, transfer);
 		}
 	    break;
+	// The status here is the one piece of ground truth for why a stream actually
+	// died at the USB layer — previously only visible via UVC_DEBUG, which expands
+	// to nothing because UVC_DEBUGGING is off, so every one of these was silently
+	// discarded. Logged unconditionally (LOGW/LOGE are compiled in for this build,
+	// see localdefines.h) since these branches are rare in normal operation.
 	case LIBUSB_TRANSFER_NO_DEVICE:
 		strmh->running = 0;	// this needs for unexpected disconnect of cable otherwise hangup
-		// pass through to following lines
+		LOGE("stream transfer ended: NO_DEVICE (device physically gone), ep=0x%02x len=%d/%d",
+			transfer->endpoint, transfer->actual_length, transfer->length);
+		resubmit = 0;
+		break;
 	case LIBUSB_TRANSFER_CANCELLED:
+		LOGW("stream transfer ended: CANCELLED, ep=0x%02x len=%d/%d",
+			transfer->endpoint, transfer->actual_length, transfer->length);
+		resubmit = 0;
+		break;
 	case LIBUSB_TRANSFER_ERROR:
-		UVC_DEBUG("not retrying transfer, status = %d", transfer->status);
-//		MARK("not retrying transfer, status = %d", transfer->status);
-//		_uvc_delete_transfer(transfer);
+		LOGE("stream transfer ended: ERROR (generic I/O failure, often a cable/connector/hub fault), ep=0x%02x len=%d/%d",
+			transfer->endpoint, transfer->actual_length, transfer->length);
 		resubmit = 0;
 		break;
 	case LIBUSB_TRANSFER_TIMED_OUT:
+		LOGW("stream transfer retrying: TIMED_OUT, ep=0x%02x len=%d/%d",
+			transfer->endpoint, transfer->actual_length, transfer->length);
+		break;
 	case LIBUSB_TRANSFER_STALL:
+		LOGW("stream transfer retrying: STALL (device rejected the request), ep=0x%02x len=%d/%d",
+			transfer->endpoint, transfer->actual_length, transfer->length);
+		break;
 	case LIBUSB_TRANSFER_OVERFLOW:
-		UVC_DEBUG("retrying transfer, status = %d", transfer->status);
-//		MARK("retrying transfer, status = %d", transfer->status);
+		LOGW("stream transfer retrying: OVERFLOW (more data than the buffer/bandwidth expected), ep=0x%02x len=%d/%d",
+			transfer->endpoint, transfer->actual_length, transfer->length);
 		break;
 	}
 
