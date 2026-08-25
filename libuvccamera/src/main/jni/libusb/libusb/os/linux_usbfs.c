@@ -2525,6 +2525,12 @@ static int op_handle_events(struct libusb_context *ctx,
 				break;
 		}
 
+		if (&handle->list == &ctx->open_devs) {
+			/* handle for this fd was closed concurrently (e.g. mid-disconnect) -
+			 * nothing left to do for it, and handle/hpriv are not valid here */
+			continue;
+		}
+
 		if (pollfd->revents & POLLERR) {
 			usbi_remove_pollfd(HANDLE_CTX(handle), hpriv->fd);
 			usbi_handle_disconnect(handle);
