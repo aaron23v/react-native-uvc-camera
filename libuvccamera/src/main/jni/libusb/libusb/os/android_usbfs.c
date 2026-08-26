@@ -2925,6 +2925,30 @@ static int reap_for_handle(struct libusb_device_handle *handle) {
 	}
 
 	itransfer = urb->usercontext;
+
+	/* Defend against a reaped URB whose usercontext no longer points at a
+	 * transfer we're tracking. Seen twice as a SIGSEGV on physical USB
+	 * unplug: urb->usercontext came back as a small garbage value (0x79,
+	 * 0x300e — not a real heap pointer) and the transfer->type dereference
+	 * below faulted. Confirm itransfer is still a live flying transfer
+	 * before touching anything through it — this only compares the raw
+	 * pointer value against list nodes we already trust, it never
+	 * dereferences the untrusted itransfer pointer itself. */
+	{
+		struct usbi_transfer *cur;
+		int found = 0;
+		usbi_mutex_lock(&HANDLE_CTX(handle)->flying_transfers_lock);
+		list_for_each_entry(cur, &HANDLE_CTX(handle)->flying_transfers, list, struct usbi_transfer)
+			if (cur == itransfer) { found = 1; break; }
+		usbi_mutex_unlock(&HANDLE_CTX(handle)->flying_transfers_lock);
+		if (UNLIKELY(!found)) {
+			usbi_err(HANDLE_CTX(handle),
+				"reap_for_handle: reaped urb with unknown/stale usercontext %p, dropping",
+				itransfer);
+			return LIBUSB_ERROR_NO_DEVICE;
+		}
+	}
+
 	transfer = USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
 
 	usbi_dbg("urb type=%d status=%d transferred=%d",
